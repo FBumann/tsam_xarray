@@ -10,7 +10,7 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
 dependencies = [
-    "tsam>=2",
+    "tsam>=3.2.0",
     "xarray>=2024.1",
 ]
 
@@ -24,6 +24,7 @@ dev = [
     "pytest>=8",
     "pytest-cov>=6",
     "mypy>=1",
+    "pandas-stubs",
     "ruff>=0.11",
     "pre-commit>=4",
 ]
@@ -36,12 +37,17 @@ version-file = "src/tsam_xarray/_version.py"
 
 [tool.ruff]
 src = ["src"]
+exclude = ["src/tsam_xarray/_version.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
 [tool.mypy]
 strict = true
+
+[[tool.mypy.overrides]]
+module = ["tsam.*", "xarray.*", "numpy.*"]
+ignore_missing_imports = true
 
 [tool.coverage.run]
 source = ["tsam_xarray"]
