@@ -17,7 +17,11 @@ dependencies = [
 [dependency-groups]
 docs = [
     "mkdocs-material>=9",
+    "mkdocs-jupyter>=0.25",
+    "mkdocs-gen-files>=0.5",
+    "mkdocs-literate-nav>=0.6",
     "mkdocstrings[python]>=0.27",
+    "ipykernel>=6",
 ]
 dev = [
     {include-group = "docs"},
@@ -27,6 +31,7 @@ dev = [
     "pandas-stubs",
     "ruff>=0.11",
     "pre-commit>=4",
+    "nbstripout>=0.7",
 ]
 
 [tool.hatch.version]
