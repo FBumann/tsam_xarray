@@ -106,9 +106,9 @@ def _validate(
             if dim_name not in stack_dims:
                 msg = f"Weight key {dim_name!r} is not in stack_dims {stack_dims}"
                 raise ValueError(msg)
-            valid = set(da.coords[dim_name].values.tolist())
+            valid = {str(v) for v in da.coords[dim_name].values}
             for coord_name in dim_weights:
-                if coord_name not in valid:
+                if str(coord_name) not in valid:
                     msg = f"Weight coord {coord_name!r} not in {dim_name!r} coordinates"
                     raise ValueError(msg)
 
@@ -331,13 +331,17 @@ def _concat_along_dims(
         return [_nest(dims[1:]) for _ in slice_coords[dims[0]]]
 
     nested: Any = _nest(slice_dims)
-    for i, dim in reversed(list(enumerate(slice_dims))):
+
+    def _recursive_concat(node: Any, dims: list[str]) -> xr.DataArray:
+        """Recursively concat nested lists, outermost dim first."""
+        dim = dims[0]
         idx = _make_dim_index(slice_coords, dim)
-        if i == len(slice_dims) - 1:
-            nested = [xr.concat(group, dim=idx) for group in nested]
-        else:
-            nested = xr.concat(nested, dim=idx)
-    return nested  # type: ignore[no-any-return]
+        if len(dims) == 1:
+            return xr.concat(node, dim=idx)  # type: ignore[no-any-return]
+        children = [_recursive_concat(child, dims[1:]) for child in node]
+        return xr.concat(children, dim=idx)
+
+    return _recursive_concat(nested, slice_dims)
 
 
 def _concat_results(

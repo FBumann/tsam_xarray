@@ -46,7 +46,7 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 strict = true
 
 [[tool.mypy.overrides]]
-module = ["tsam.*", "xarray.*"]
+module = ["tsam.*", "xarray.*", "numpy.*"]
 ignore_missing_imports = true
 
 [tool.coverage.run]

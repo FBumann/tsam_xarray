@@ -175,6 +175,32 @@ class TestSliceDims:
         assert len(result.raw) == 2
 
 
+    def test_multiple_slice_dims(self):
+        time = pd.date_range("2020-01-01", periods=30 * 24, freq="h")
+        rng = np.random.default_rng(42)
+        da = xr.DataArray(
+            rng.random((len(time), 2, 2, 2)),
+            dims=["time", "variable", "scenario", "year"],
+            coords={
+                "time": time,
+                "variable": ["solar", "wind"],
+                "scenario": ["low", "high"],
+                "year": [2020, 2021],
+            },
+        )
+        result = tsam_xarray.aggregate(
+            da,
+            n_clusters=4,
+            time_dim="time",
+            stack_dims=["variable"],
+            slice_dims=["scenario", "year"],
+        )
+        assert "scenario" in result.typical_periods.dims
+        assert "year" in result.typical_periods.dims
+        assert result.typical_periods.sizes["scenario"] == 2
+        assert result.typical_periods.sizes["year"] == 2
+
+
 class TestWeights:
     def test_weights_passthrough(self):
         da = _make_da()
@@ -184,6 +210,24 @@ class TestWeights:
             time_dim="time",
             stack_dims=["variable", "region"],
             weights={"variable": {"solar": 2.0}},
+        )
+        assert result.typical_periods.sizes["cluster"] == 4
+
+
+    def test_weights_with_numeric_coords(self):
+        time = pd.date_range("2020-01-01", periods=30 * 24, freq="h")
+        rng = np.random.default_rng(42)
+        da = xr.DataArray(
+            rng.random((len(time), 3)),
+            dims=["time", "level"],
+            coords={"time": time, "level": [1, 2, 3]},
+        )
+        result = tsam_xarray.aggregate(
+            da,
+            n_clusters=4,
+            time_dim="time",
+            stack_dims=["level"],
+            weights={"level": {"1": 2.0}},
         )
         assert result.typical_periods.sizes["cluster"] == 4
 
