@@ -44,26 +44,27 @@ class AggregationResult:
         """Number of segments per period, if segmentation was used."""
         if isinstance(self.raw, dict):
             first = next(iter(self.raw.values()))
-            return first.n_segments
-        return self.raw.n_segments  # type: ignore[no-any-return]
+            result: int | None = first.n_segments
+        else:
+            result = self.raw.n_segments
+        return result
 
     @property
     def clustering_duration(self) -> float:
         """Time spent on clustering in seconds."""
         if isinstance(self.raw, dict):
-            return sum(
-                r.clustering_duration for r in self.raw.values()
-            )
-        return self.raw.clustering_duration  # type: ignore[no-any-return]
+            total: float = sum(r.clustering_duration for r in self.raw.values())
+            return total
+        duration: float = self.raw.clustering_duration
+        return duration
 
     @property
     def is_transferred(self) -> bool:
         """Whether result was created via ClusteringResult.apply()."""
         if isinstance(self.raw, dict):
-            return all(
-                r.is_transferred for r in self.raw.values()
-            )
-        return self.raw.is_transferred  # type: ignore[no-any-return]
+            return all(r.is_transferred for r in self.raw.values())
+        is_transferred: bool = self.raw.is_transferred
+        return is_transferred
 
     @property
     def residuals(self) -> xr.DataArray:

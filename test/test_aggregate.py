@@ -140,9 +140,7 @@ class TestNoStackDims:
             dims=["time"],
             coords={"time": time},
         )
-        result = tsam_xarray.aggregate(
-            da, n_clusters=4, time_dim="time"
-        )
+        result = tsam_xarray.aggregate(da, n_clusters=4, time_dim="time")
         assert set(result.typical_periods.dims) == {
             "cluster",
             "timestep",

@@ -37,6 +37,7 @@ version-file = "src/tsam_xarray/_version.py"
 
 [tool.ruff]
 src = ["src"]
+exclude = ["src/tsam_xarray/_version.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]

@@ -55,9 +55,7 @@ def aggregate(
         )
 
     slice_coords = {d: da.coords[d].values for d in slice_dims_l}
-    slice_keys = list(
-        itertools.product(*(slice_coords[d] for d in slice_dims_l))
-    )
+    slice_keys = list(itertools.product(*(slice_coords[d] for d in slice_dims_l)))
 
     results: list[AggregationResult] = []
     raw_map: dict[tuple[Hashable, ...], Any] = {}
@@ -100,27 +98,18 @@ def _validate(
         raise ValueError(msg)
     unaccounted = dims - all_specified
     if unaccounted:
-        msg = (
-            f"Dimensions {unaccounted} not in time_dim, "
-            "stack_dims, or slice_dims"
-        )
+        msg = f"Dimensions {unaccounted} not in time_dim, stack_dims, or slice_dims"
         raise ValueError(msg)
 
     if weights is not None:
         for dim_name, dim_weights in weights.items():
             if dim_name not in stack_dims:
-                msg = (
-                    f"Weight key {dim_name!r} is not in "
-                    f"stack_dims {stack_dims}"
-                )
+                msg = f"Weight key {dim_name!r} is not in stack_dims {stack_dims}"
                 raise ValueError(msg)
             valid = set(da.coords[dim_name].values.tolist())
             for coord_name in dim_weights:
                 if coord_name not in valid:
-                    msg = (
-                        f"Weight coord {coord_name!r} not in "
-                        f"{dim_name!r} coordinates"
-                    )
+                    msg = f"Weight coord {coord_name!r} not in {dim_name!r} coordinates"
                     raise ValueError(msg)
 
 
@@ -165,9 +154,7 @@ def _translate_weights(
     flat: dict[str, float] = {}
     for flat_name, coord_tuple in coord_map.items():
         w = 1.0
-        for dim_name, coord_val in zip(
-            stack_dims, coord_tuple, strict=True
-        ):
+        for dim_name, coord_val in zip(stack_dims, coord_tuple, strict=True):
             if dim_name in weights:
                 w *= weights[dim_name].get(str(coord_val), 1.0)
         flat[flat_name] = w
@@ -186,18 +173,14 @@ def _unflatten_representatives(
     if not stack_dims:
         clusters = df.index.get_level_values(0).unique()
         timesteps = df.index.get_level_values(1).unique()
-        values = df.values.squeeze(axis=1).reshape(
-            len(clusters), len(timesteps)
-        )
+        values = df.values.squeeze(axis=1).reshape(len(clusters), len(timesteps))
         return xr.DataArray(
             values,
             dims=["cluster", "timestep"],
             coords={"cluster": clusters, "timestep": timesteps},
         )
 
-    return _df_to_da(
-        df, stack_dims, coord_map, index_dims=["cluster", "timestep"]
-    )
+    return _df_to_da(df, stack_dims, coord_map, index_dims=["cluster", "timestep"])
 
 
 def _unflatten_reconstructed(
@@ -284,9 +267,7 @@ def _aggregate_single(
     if weights is not None:
         flat_weights = _translate_weights(weights, coord_map, stack_dims)
 
-    tsam_result = tsam.aggregate(
-        df, n_clusters, weights=flat_weights, **tsam_kwargs
-    )
+    tsam_result = tsam.aggregate(df, n_clusters, weights=flat_weights, **tsam_kwargs)
 
     typical = _unflatten_representatives(
         tsam_result.cluster_representatives, stack_dims, coord_map
@@ -303,17 +284,11 @@ def _aggregate_single(
         coords={"cluster": cluster_ids},
     )
 
-    assignments_da = xr.DataArray(
-        tsam_result.cluster_assignments, dims=["period"]
-    )
+    assignments_da = xr.DataArray(tsam_result.cluster_assignments, dims=["period"])
 
     accuracy = AccuracyResult(
-        rmse=_unflatten_metric(
-            tsam_result.accuracy.rmse, stack_dims, coord_map
-        ),
-        mae=_unflatten_metric(
-            tsam_result.accuracy.mae, stack_dims, coord_map
-        ),
+        rmse=_unflatten_metric(tsam_result.accuracy.rmse, stack_dims, coord_map),
+        mae=_unflatten_metric(tsam_result.accuracy.mae, stack_dims, coord_map),
         rmse_duration=_unflatten_metric(
             tsam_result.accuracy.rmse_duration, stack_dims, coord_map
         ),
@@ -345,9 +320,7 @@ def _concat_along_dims(
 ) -> xr.DataArray:
     """Concat arrays along one or more slice dims."""
     if len(slice_dims) == 1:
-        return xr.concat(
-            arrays, dim=_make_dim_index(slice_coords, slice_dims[0])
-        )
+        return xr.concat(arrays, dim=_make_dim_index(slice_coords, slice_dims[0]))
     it = iter(arrays)
 
     def _nest(
@@ -361,9 +334,7 @@ def _concat_along_dims(
     for i, dim in reversed(list(enumerate(slice_dims))):
         idx = _make_dim_index(slice_coords, dim)
         if i == len(slice_dims) - 1:
-            nested = [
-                xr.concat(group, dim=idx) for group in nested
-            ]
+            nested = [xr.concat(group, dim=idx) for group in nested]
         else:
             nested = xr.concat(nested, dim=idx)
     return nested  # type: ignore[no-any-return]
