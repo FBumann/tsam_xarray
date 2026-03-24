@@ -1,0 +1,56 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tsam_xarray"
+dynamic = ["version"]
+description = "Lightweight xarray wrapper for tsam time series aggregation"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = [
+    "tsam>=2",
+    "xarray>=2024.1",
+]
+
+[dependency-groups]
+docs = [
+    "mkdocs-material>=9",
+    "mkdocstrings[python]>=0.27",
+]
+dev = [
+    {include-group = "docs"},
+    "pytest>=8",
+    "pytest-cov>=6",
+    "mypy>=1",
+    "ruff>=0.11",
+    "pre-commit>=4",
+]
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/tsam_xarray/_version.py"
+
+[tool.ruff]
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+strict = true
+
+[tool.coverage.run]
+source = ["tsam_xarray"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["test"]
