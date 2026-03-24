@@ -21,5 +21,8 @@ htmlcov/
 # mypy
 .mypy_cache/
 
+# uv
+uv.lock
+
 # OS
 .DS_Store

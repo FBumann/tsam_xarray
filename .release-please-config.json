@@ -5,8 +5,11 @@
     ".": {
       "release-type": "simple",
       "package-name": "tsam_xarray",
+      "bump-minor-for-major-pre-major": true,
+      "bump-patch-for-minor-pre-major": true,
       "changelog-path": "CHANGELOG.md",
-      "prerelease": true
+      "prerelease": true,
+      "prerelease-type": "alpha"
     }
   }
 }
