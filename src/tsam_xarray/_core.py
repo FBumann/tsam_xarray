@@ -13,7 +13,7 @@ import xarray as xr
 
 from tsam_xarray._result import AccuracyMetrics, AggregationResult
 
-_SEP = "__"
+_SEP = "__SEP__"
 
 
 def aggregate(
