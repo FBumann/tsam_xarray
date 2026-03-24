@@ -11,7 +11,7 @@ import pandas as pd
 import tsam
 import xarray as xr
 
-from tsam_xarray._result import AccuracyResult, AggregationResult
+from tsam_xarray._result import AccuracyMetrics, AggregationResult
 
 _SEP = "__"
 
@@ -286,7 +286,7 @@ def _aggregate_single(
 
     assignments_da = xr.DataArray(tsam_result.cluster_assignments, dims=["period"])
 
-    accuracy = AccuracyResult(
+    accuracy = AccuracyMetrics(
         rmse=_unflatten_metric(tsam_result.accuracy.rmse, stack_dims, coord_map),
         mae=_unflatten_metric(tsam_result.accuracy.mae, stack_dims, coord_map),
         rmse_duration=_unflatten_metric(
@@ -360,7 +360,7 @@ def _concat_results(
         typical_periods=_field("typical_periods"),
         cluster_assignments=_field("cluster_assignments"),
         cluster_weights=_field("cluster_weights"),
-        accuracy=AccuracyResult(
+        accuracy=AccuracyMetrics(
             rmse=_acc_field("rmse"),
             mae=_acc_field("mae"),
             rmse_duration=_acc_field("rmse_duration"),

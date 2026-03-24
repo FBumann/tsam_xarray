@@ -9,7 +9,7 @@ import xarray as xr
 
 
 @dataclass(frozen=True)
-class AccuracyResult:
+class AccuracyMetrics:
     """Accuracy metrics from time series aggregation."""
 
     rmse: xr.DataArray
@@ -24,7 +24,7 @@ class AggregationResult:
     typical_periods: xr.DataArray
     cluster_assignments: xr.DataArray
     cluster_weights: xr.DataArray
-    accuracy: AccuracyResult
+    accuracy: AccuracyMetrics
     reconstructed: xr.DataArray
     original: xr.DataArray
     raw: Any  # tsam.AggregationResult or dict of them
