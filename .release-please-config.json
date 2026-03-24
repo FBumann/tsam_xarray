@@ -5,7 +5,8 @@
     ".": {
       "release-type": "simple",
       "package-name": "tsam_xarray",
-      "changelog-path": "CHANGELOG.md"
+      "changelog-path": "CHANGELOG.md",
+      "prerelease": true
     }
   }
 }
