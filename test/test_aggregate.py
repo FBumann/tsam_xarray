@@ -174,7 +174,6 @@ class TestSliceDims:
         assert isinstance(result.raw, dict)
         assert len(result.raw) == 2
 
-
     def test_multiple_slice_dims(self):
         time = pd.date_range("2020-01-01", periods=30 * 24, freq="h")
         rng = np.random.default_rng(42)
@@ -212,7 +211,6 @@ class TestWeights:
             weights={"variable": {"solar": 2.0}},
         )
         assert result.typical_periods.sizes["cluster"] == 4
-
 
     def test_weights_with_numeric_coords(self):
         time = pd.date_range("2020-01-01", periods=30 * 24, freq="h")
