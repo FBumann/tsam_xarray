@@ -1,3 +1,3 @@
-# my-package
+# tsam_xarray
 
-TODO: project description
+Lightweight xarray wrapper for [tsam](https://github.com/FZJ-IEK3-VSA/tsam) time series aggregation.
