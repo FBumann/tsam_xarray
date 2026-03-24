@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import itertools
-from collections.abc import Hashable, Sequence
+from collections.abc import Hashable
 from typing import Any
 
 import numpy as np
@@ -13,17 +13,14 @@ import xarray as xr
 
 from tsam_xarray._result import AccuracyMetrics, AggregationResult
 
-_SEP = "__SEP__"
-
 
 def aggregate(
     da: xr.DataArray,
     n_clusters: int,
     *,
-    time_dim: str,
-    stack_dims: Sequence[str] = (),
-    slice_dims: Sequence[str] = (),
-    weights: dict[str, dict[str, float]] | None = None,
+    time_dim: str = "time",
+    column_dim: str | None = None,
+    weights: dict[str, float] | None = None,
     **tsam_kwargs: Any,
 ) -> AggregationResult:
     """Aggregate an xarray DataArray using tsam.
@@ -32,145 +29,131 @@ def aggregate(
     ----------
     da : xr.DataArray
         Input data with a time dimension and optional extra dimensions.
+        Use ``da.stack(column=["var1", "var2"])`` to combine multiple
+        dimensions into a single column dimension before calling.
     n_clusters : int
         Number of typical periods.
     time_dim : str
-        Name of the time dimension.
-    stack_dims : Sequence[str]
-        Dimensions to flatten into DataFrame columns (shared clustering).
-    slice_dims : Sequence[str]
-        Dimensions to loop over independently (one aggregation each).
-    weights : dict[str, dict[str, float]] | None
-        Per-dimension weights, e.g. ``{"variable": {"solar": 2.0}}``.
+        Name of the time dimension (default: ``"time"``).
+    column_dim : str | None
+        Dimension that becomes DataFrame columns. If ``None`` and the
+        DataArray has exactly two dims, the non-time dim is used. For
+        1D data (time only), pass ``None``.
+    weights : dict[str, float] | None
+        Per-column weights passed to ``tsam.aggregate()``.
     **tsam_kwargs
         Additional keyword arguments passed to ``tsam.aggregate()``.
     """
-    stack_dims_l = list(stack_dims)
-    slice_dims_l = list(slice_dims)
-    _validate(da, time_dim, stack_dims_l, slice_dims_l, weights)
+    _validate_time_dim(da, time_dim)
+    column_dim = _resolve_column_dim(da, time_dim, column_dim)
+    slice_dims = _infer_slice_dims(da, time_dim, column_dim)
+    _validate(da, time_dim, column_dim, slice_dims)
 
-    if not slice_dims_l:
+    if not slice_dims:
         return _aggregate_single(
-            da, n_clusters, time_dim, stack_dims_l, weights, tsam_kwargs
+            da, n_clusters, time_dim, column_dim, weights, tsam_kwargs
         )
 
-    slice_coords = {d: da.coords[d].values for d in slice_dims_l}
-    slice_keys = list(itertools.product(*(slice_coords[d] for d in slice_dims_l)))
+    slice_coords = {d: da.coords[d].values for d in slice_dims}
+    slice_keys = list(itertools.product(*(slice_coords[d] for d in slice_dims)))
 
     results: list[AggregationResult] = []
     raw_map: dict[tuple[Hashable, ...], Any] = {}
 
     for key in slice_keys:
-        sel = dict(zip(slice_dims_l, key, strict=True))
+        sel = dict(zip(slice_dims, key, strict=True))
         da_slice = da.sel(sel)
         r = _aggregate_single(
-            da_slice, n_clusters, time_dim, stack_dims_l, weights, tsam_kwargs
+            da_slice, n_clusters, time_dim, column_dim, weights, tsam_kwargs
         )
         results.append(r)
         raw_map[key] = r.raw
 
-    return _concat_results(results, slice_dims_l, slice_coords, raw_map)
+    return _concat_results(results, slice_dims, slice_coords, raw_map)
+
+
+def _resolve_column_dim(
+    da: xr.DataArray,
+    time_dim: str,
+    column_dim: str | None,
+) -> str | None:
+    """Resolve column_dim, auto-detecting if not specified."""
+    if column_dim is not None:
+        return column_dim
+    non_time = [d for d in da.dims if d != time_dim]
+    if len(non_time) == 0:
+        return None
+    if len(non_time) == 1:
+        return str(non_time[0])
+    # Multiple non-time dims — can't auto-detect
+    msg = (
+        f"DataArray has multiple non-time dims {non_time}. "
+        "Specify column_dim explicitly, or use da.stack() to "
+        "combine dims first."
+    )
+    raise ValueError(msg)
+
+
+def _infer_slice_dims(
+    da: xr.DataArray,
+    time_dim: str,
+    column_dim: str | None,
+) -> list[str]:
+    """Infer slice dims: everything not time_dim or column_dim."""
+    exclude = {time_dim}
+    if column_dim is not None:
+        exclude.add(column_dim)
+    return [str(d) for d in da.dims if d not in exclude]
+
+
+def _validate_time_dim(da: xr.DataArray, time_dim: str) -> None:
+    if time_dim not in da.dims:
+        msg = f"time_dim {time_dim!r} not in DataArray dims {set(da.dims)}"
+        raise ValueError(msg)
 
 
 def _validate(
     da: xr.DataArray,
     time_dim: str,
-    stack_dims: list[str],
+    column_dim: str | None,
     slice_dims: list[str],
-    weights: dict[str, dict[str, float]] | None,
 ) -> None:
     dims = set(da.dims)
-    if time_dim not in dims:
-        msg = f"time_dim {time_dim!r} not in DataArray dims {dims}"
+    if column_dim is not None and column_dim not in dims:
+        msg = f"column_dim {column_dim!r} not in DataArray dims {dims}"
         raise ValueError(msg)
-    for d in stack_dims:
-        if d not in dims:
-            msg = f"stack_dims entry {d!r} not in DataArray dims {dims}"
-            raise ValueError(msg)
-    for d in slice_dims:
-        if d not in dims:
-            msg = f"slice_dims entry {d!r} not in DataArray dims {dims}"
-            raise ValueError(msg)
-
-    all_specified = {time_dim} | set(stack_dims) | set(slice_dims)
-    if len(all_specified) != 1 + len(stack_dims) + len(slice_dims):
-        msg = "time_dim, stack_dims, and slice_dims must not overlap"
-        raise ValueError(msg)
-    unaccounted = dims - all_specified
-    if unaccounted:
-        msg = f"Dimensions {unaccounted} not in time_dim, stack_dims, or slice_dims"
+    if column_dim == time_dim:
+        msg = "column_dim and time_dim must be different"
         raise ValueError(msg)
 
-    if weights is not None:
-        for dim_name, dim_weights in weights.items():
-            if dim_name not in stack_dims:
-                msg = f"Weight key {dim_name!r} is not in stack_dims {stack_dims}"
-                raise ValueError(msg)
-            valid = {str(v) for v in da.coords[dim_name].values}
-            for coord_name in dim_weights:
-                if str(coord_name) not in valid:
-                    msg = f"Weight coord {coord_name!r} not in {dim_name!r} coordinates"
-                    raise ValueError(msg)
 
-
-def _flatten(
+def _to_dataframe(
     da: xr.DataArray,
     time_dim: str,
-    stack_dims: list[str],
-) -> tuple[pd.DataFrame, dict[str, tuple[Hashable, ...]]]:
-    """Flatten DataArray to DataFrame with flat string column names."""
-    if not stack_dims:
+    column_dim: str | None,
+) -> pd.DataFrame:
+    """Convert DataArray to DataFrame for tsam."""
+    if column_dim is None:
+        # 1D time series
         s = da.to_pandas()
         if isinstance(s, pd.Series):
             name = da.name or "value"
-            df: pd.DataFrame = s.to_frame(name=str(name))
-        else:
-            df = pd.DataFrame(s)
-        return df, {c: (c,) for c in df.columns}
+            return s.to_frame(name=str(name))
+        return pd.DataFrame(s)
 
-    ordered = [time_dim, *stack_dims]
-    da_t = da.transpose(*ordered)
-    da_stacked = da_t.stack(_flat=stack_dims)
-    df = pd.DataFrame(da_stacked.to_pandas())
-
-    coord_map: dict[str, tuple[Hashable, ...]] = {}
-    for col in df.columns:
-        if isinstance(col, tuple):
-            flat_name = _SEP.join(str(c) for c in col)
-            coord_map[flat_name] = col
-        else:
-            flat_name = str(col)
-            coord_map[flat_name] = (col,)
-    df.columns = pd.Index(list(coord_map.keys()))
-    return df, coord_map
+    da_t = da.transpose(time_dim, column_dim)
+    return pd.DataFrame(da_t.to_pandas())
 
 
-def _translate_weights(
-    weights: dict[str, dict[str, float]],
-    coord_map: dict[str, tuple[Hashable, ...]],
-    stack_dims: list[str],
-) -> dict[str, float]:
-    """Translate per-dim weights to flat column weights."""
-    flat: dict[str, float] = {}
-    for flat_name, coord_tuple in coord_map.items():
-        w = 1.0
-        for dim_name, coord_val in zip(stack_dims, coord_tuple, strict=True):
-            if dim_name in weights:
-                w *= weights[dim_name].get(str(coord_val), 1.0)
-        flat[flat_name] = w
-    return flat
-
-
-def _unflatten_representatives(
+def _representatives_to_da(
     df: pd.DataFrame,
-    stack_dims: list[str],
-    coord_map: dict[str, tuple[Hashable, ...]],
+    column_dim: str | None,
 ) -> xr.DataArray:
-    """Unflatten cluster_representatives to DataArray."""
+    """Convert cluster_representatives DataFrame to DataArray."""
     df = df.copy()
     df.index.names = ["cluster", "timestep"]
 
-    if not stack_dims:
+    if column_dim is None:
         clusters = df.index.get_level_values(0).unique()
         timesteps = df.index.get_level_values(1).unique()
         values = df.values.squeeze(axis=1).reshape(len(clusters), len(timesteps))
@@ -180,100 +163,66 @@ def _unflatten_representatives(
             coords={"cluster": clusters, "timestep": timesteps},
         )
 
-    return _df_to_da(df, stack_dims, coord_map, index_dims=["cluster", "timestep"])
+    stacked = df.stack(df.columns.names, future_stack=True)
+    da: xr.DataArray = stacked.to_xarray()  # type: ignore[assignment]
+    return da
 
 
-def _unflatten_reconstructed(
+def _reconstructed_to_da(
     df: pd.DataFrame,
     time_dim: str,
-    stack_dims: list[str],
-    coord_map: dict[str, tuple[Hashable, ...]],
+    column_dim: str | None,
 ) -> xr.DataArray:
-    """Unflatten reconstructed DataFrame to DataArray."""
+    """Convert reconstructed DataFrame to DataArray."""
     df = df.copy()
     df.index.name = time_dim
 
-    if not stack_dims:
+    if column_dim is None:
         return xr.DataArray(
             df.values.squeeze(axis=1),
             dims=[time_dim],
             coords={time_dim: df.index},
         )
 
-    return _df_to_da(df, stack_dims, coord_map, index_dims=[time_dim])
+    stacked = df.stack(df.columns.names, future_stack=True)
+    da: xr.DataArray = stacked.to_xarray()  # type: ignore[assignment]
+    return da
 
 
-def _unflatten_metric(
+def _metric_to_da(
     series: pd.Series[float],
-    stack_dims: list[str],
-    coord_map: dict[str, tuple[Hashable, ...]],
+    column_dim: str | None,
+    column_names: list[str] | None = None,
 ) -> xr.DataArray:
-    """Unflatten an accuracy metric Series to DataArray."""
-    if not stack_dims:
+    """Convert an accuracy metric Series to DataArray."""
+    if column_dim is None:
         return xr.DataArray(float(series.iloc[0]))
-
-    if len(stack_dims) == 1:
-        idx = pd.Index(
-            [coord_map[n][0] for n in series.index],
-            name=stack_dims[0],
-        )
-    else:
-        idx = pd.MultiIndex.from_tuples(
-            [coord_map[name] for name in series.index],
-            names=stack_dims,
-        )
     series = series.copy()
-    series.index = idx
-    result = xr.DataArray(series.to_xarray())
-    return result
-
-
-def _df_to_da(
-    df: pd.DataFrame,
-    stack_dims: list[str],
-    coord_map: dict[str, tuple[Hashable, ...]],
-    index_dims: list[str],
-) -> xr.DataArray:
-    """Convert DataFrame with flat column names back to DataArray."""
-    if len(stack_dims) == 1:
-        cols: pd.Index = pd.Index(
-            [coord_map[c][0] for c in df.columns],
-            name=stack_dims[0],
-        )
-    else:
-        cols = pd.MultiIndex.from_tuples(
-            [coord_map[c] for c in df.columns],
-            names=stack_dims,
-        )
-    df = df.copy()
-    df.columns = cols
-    stacked = df.stack(stack_dims, future_stack=True)
-    result: xr.DataArray = stacked.to_xarray()  # type: ignore[assignment]
-    return result
+    if isinstance(series.index, pd.MultiIndex):
+        # Restore MultiIndex level names (tsam drops them)
+        if column_names is not None:
+            series.index = series.index.set_names(column_names)
+    elif series.index.name is None:
+        series.index.name = column_dim
+    return xr.DataArray(series.to_xarray())
 
 
 def _aggregate_single(
     da: xr.DataArray,
     n_clusters: int,
     time_dim: str,
-    stack_dims: list[str],
-    weights: dict[str, dict[str, float]] | None,
+    column_dim: str | None,
+    weights: dict[str, float] | None,
     tsam_kwargs: dict[str, Any],
 ) -> AggregationResult:
     """Run a single tsam aggregation on a DataArray."""
-    df, coord_map = _flatten(da, time_dim, stack_dims)
+    df = _to_dataframe(da, time_dim, column_dim)
 
-    flat_weights: dict[str, float] | None = None
-    if weights is not None:
-        flat_weights = _translate_weights(weights, coord_map, stack_dims)
+    tsam_result = tsam.aggregate(df, n_clusters, weights=weights, **tsam_kwargs)
 
-    tsam_result = tsam.aggregate(df, n_clusters, weights=flat_weights, **tsam_kwargs)
-
-    typical = _unflatten_representatives(
-        tsam_result.cluster_representatives, stack_dims, coord_map
-    )
-    reconstructed = _unflatten_reconstructed(
-        tsam_result.reconstructed, time_dim, stack_dims, coord_map
+    typical = _representatives_to_da(tsam_result.cluster_representatives, column_dim)
+    reconstructed = _reconstructed_to_da(
+        tsam_result.reconstructed, time_dim, column_dim
     )
 
     cw = tsam_result.cluster_weights
@@ -286,11 +235,16 @@ def _aggregate_single(
 
     assignments_da = xr.DataArray(tsam_result.cluster_assignments, dims=["period"])
 
+    # Extract column names for restoring MultiIndex level names
+    col_names: list[str] | None = None
+    if isinstance(df.columns, pd.MultiIndex):
+        col_names = [str(n) for n in df.columns.names]
+
     accuracy = AccuracyMetrics(
-        rmse=_unflatten_metric(tsam_result.accuracy.rmse, stack_dims, coord_map),
-        mae=_unflatten_metric(tsam_result.accuracy.mae, stack_dims, coord_map),
-        rmse_duration=_unflatten_metric(
-            tsam_result.accuracy.rmse_duration, stack_dims, coord_map
+        rmse=_metric_to_da(tsam_result.accuracy.rmse, column_dim, col_names),
+        mae=_metric_to_da(tsam_result.accuracy.mae, column_dim, col_names),
+        rmse_duration=_metric_to_da(
+            tsam_result.accuracy.rmse_duration, column_dim, col_names
         ),
     )
 
@@ -323,9 +277,7 @@ def _concat_along_dims(
         return xr.concat(arrays, dim=_make_dim_index(slice_coords, slice_dims[0]))
     it = iter(arrays)
 
-    def _nest(
-        dims: list[str],
-    ) -> list[Any]:
+    def _nest(dims: list[str]) -> list[Any]:
         if len(dims) == 1:
             return [next(it) for _ in slice_coords[dims[0]]]
         return [_nest(dims[1:]) for _ in slice_coords[dims[0]]]
@@ -333,7 +285,6 @@ def _concat_along_dims(
     nested: Any = _nest(slice_dims)
 
     def _recursive_concat(node: Any, dims: list[str]) -> xr.DataArray:
-        """Recursively concat nested lists, outermost dim first."""
         dim = dims[0]
         idx = _make_dim_index(slice_coords, dim)
         if len(dims) == 1:
