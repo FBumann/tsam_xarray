@@ -28,13 +28,17 @@ theme:
 
 plugins:
   - search
+  - mkdocs-jupyter:
+      include_source: true
+      execute: true
   - mkdocstrings:
       handlers:
         python:
+          paths: [src]
           options:
             docstring_style: google
             show_source: true
-            paths: [src]
+            show_root_heading: true
 
 markdown_extensions:
   - admonition
@@ -49,6 +53,13 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - Getting Started: examples/getting-started.ipynb
+  - Examples:
+      - Stack Dims: examples/stack-dims.ipynb
+      - Slice Dims: examples/slice-dims.ipynb
+      - Weights: examples/weights.ipynb
+      - Accuracy: examples/accuracy.ipynb
+  - API Reference: api.md
   - Changelog: changelog.md
 
 watch:
