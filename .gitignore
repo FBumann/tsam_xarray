@@ -33,3 +33,4 @@ site/
 
 # OS
 .DS_Store
+docs/examples/clustering.json
