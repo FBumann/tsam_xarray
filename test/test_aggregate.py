@@ -659,6 +659,39 @@ class TestDataValidation:
                 da, time_dim="time", cluster_dim="timestep", n_clusters=4
             )
 
+    def test_reserved_dim_name_period(self):
+        time = pd.date_range("2020-01-01", periods=30 * 24, freq="h")
+        da = xr.DataArray(
+            np.random.default_rng(42).random((len(time), 2, 2)),
+            dims=["time", "variable", "period"],
+            coords={
+                "time": time,
+                "variable": ["a", "b"],
+                "period": [0, 1],
+            },
+        )
+        with pytest.raises(ValueError, match="reserved"):
+            tsam_xarray.aggregate(
+                da,
+                time_dim="time",
+                cluster_dim="variable",
+                n_clusters=4,
+            )
+
+    def test_dask_array_warns(self):
+        pytest.importorskip("dask")
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        da_dask = da_flat.chunk({"time": 100})
+        with pytest.warns(UserWarning, match="dask"):
+            result = tsam_xarray.aggregate(
+                da_dask,
+                time_dim="time",
+                cluster_dim="variable",
+                n_clusters=4,
+            )
+        assert not hasattr(result.typical_periods.data, "dask")
+
     def test_nan_rejected(self):
         da = _make_da()
         da_flat = da.isel(region=0).drop_vars("region")

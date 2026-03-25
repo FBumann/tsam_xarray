@@ -61,7 +61,7 @@ def aggregate(
     col_dims = _resolve_cluster_dim(cluster_dim)
     slice_dims = _infer_slice_dims(da, time_dim, col_dims)
     _validate(da, time_dim, col_dims, slice_dims)
-    _validate_data(da, time_dim, col_dims, slice_dims)
+    da = _validate_data(da, time_dim, col_dims, slice_dims)
     _validate_no_cluster_config_weights(tsam_kwargs)
     per_dim_weights = _normalize_weights(weights, da, col_dims)
 
@@ -151,8 +151,11 @@ def _validate_data(
     time_dim: str,
     col_dims: list[str],
     slice_dims: list[str],
-) -> None:
-    """Validate data values, dtypes, and coordinates."""
+) -> xr.DataArray:
+    """Validate data values, dtypes, and coordinates.
+
+    Returns the (possibly computed) DataArray.
+    """
     # Reserved dimension names
     all_user_dims = {time_dim, *col_dims, *slice_dims}
     reserved_conflict = all_user_dims & _RESERVED_DIMS
@@ -163,6 +166,16 @@ def _validate_data(
             "your input DataArray."
         )
         raise ValueError(msg)
+
+    # Dask arrays — compute before other checks
+    if hasattr(da.data, "dask"):
+        import warnings
+
+        warnings.warn(
+            "DataArray is backed by dask. Computing eagerly for tsam.",
+            stacklevel=3,
+        )
+        da = da.compute()
 
     # Numeric dtype
     if not np.issubdtype(da.dtype, np.number):
@@ -185,16 +198,6 @@ def _validate_data(
         msg = "DataArray contains NaN values. Clean your data before aggregating."
         raise ValueError(msg)
 
-    # Dask arrays
-    if hasattr(da.data, "dask"):
-        import warnings
-
-        warnings.warn(
-            "DataArray is backed by dask. Computing eagerly for tsam.",
-            stacklevel=3,
-        )
-        da = da.compute()
-
     # Regular time frequency
     time_vals = da.coords[time_dim].values
     if len(time_vals) > 1:
@@ -205,6 +208,8 @@ def _validate_data(
                 "Found irregular time intervals."
             )
             raise ValueError(msg)
+
+    return da
 
 
 def _to_dataframe(
