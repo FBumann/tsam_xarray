@@ -23,6 +23,7 @@ def aggregate(
     cluster_dim: Sequence[str] | str,
     n_clusters: int,
     weights: Weights = None,
+    n_jobs: int | None = None,
     **tsam_kwargs: Any,
 ) -> AggregationResult:
     """Aggregate an xarray DataArray using tsam.
@@ -55,6 +56,10 @@ def aggregate(
           Weights are multiplied across dimensions, e.g. ``("solar", "north")``
           gets weight ``2.0 * 1.5 = 3.0``.
 
+    n_jobs : int | None
+        Number of parallel workers for slice aggregation.
+        ``None`` or ``1`` = sequential. ``-1`` = all CPUs.
+        Only used when there are auto-sliced dimensions.
     **tsam_kwargs
         Additional keyword arguments passed to ``tsam.aggregate()``.
     """
@@ -74,20 +79,42 @@ def aggregate(
     slice_coords = {d: da.coords[d].values for d in slice_dims}
     slice_keys = list(itertools.product(*(slice_coords[d] for d in slice_dims)))
 
-    results: list[AggregationResult] = []
-
-    for key in slice_keys:
+    def _run_slice(key: tuple[Any, ...]) -> AggregationResult:
         sel = dict(zip(slice_dims, key, strict=True))
         da_slice = da.sel(sel)
-        r = _aggregate_single(
-            da_slice, n_clusters, time_dim, col_dims, per_dim_weights, tsam_kwargs
+        return _aggregate_single(
+            da_slice,
+            n_clusters,
+            time_dim,
+            col_dims,
+            per_dim_weights,
+            tsam_kwargs,
         )
-        results.append(r)
+
+    n_workers = _get_n_workers(n_jobs)
+    if n_workers <= 1:
+        results = [_run_slice(key) for key in slice_keys]
+    else:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=n_workers) as executor:
+            results = list(executor.map(_run_slice, slice_keys))
 
     # Validate consistent cluster counts (can differ with extremes="append")
     _validate_consistent_cluster_counts(results, slice_keys)
 
     return _concat_results(results, slice_dims, slice_coords, slice_keys)
+
+
+def _get_n_workers(n_jobs: int | None) -> int:
+    """Convert n_jobs to worker count (follows joblib convention)."""
+    if n_jobs is None or n_jobs == 1:
+        return 1
+    if n_jobs < 0:
+        import os
+
+        return max(1, os.cpu_count() + n_jobs + 1)  # type: ignore[operator]
+    return n_jobs
 
 
 def _resolve_cluster_dim(

@@ -1233,3 +1233,66 @@ class TestSliceEdgeCases:
         _validate_consistent_cluster_counts(
             [r1, r2], [("low",), ("high",)]
         )  # should not raise
+
+
+class TestParallel:
+    def test_parallel_matches_sequential(self):
+        """Parallel produces same results as sequential."""
+        da = _make_da(scenarios=["low", "high"])
+        result_seq = tsam_xarray.aggregate(
+            da,
+            time_dim="time",
+            cluster_dim=["variable", "region"],
+            n_clusters=4,
+        )
+        result_par = tsam_xarray.aggregate(
+            da,
+            time_dim="time",
+            cluster_dim=["variable", "region"],
+            n_clusters=4,
+            n_jobs=2,
+        )
+        np.testing.assert_allclose(
+            result_seq.typical_periods.values,
+            result_par.typical_periods.values,
+        )
+        np.testing.assert_array_equal(
+            result_seq.cluster_assignments.values,
+            result_par.cluster_assignments.values,
+        )
+
+    def test_n_jobs_none_is_sequential(self):
+        """n_jobs=None runs sequentially."""
+        da = _make_da(scenarios=["low", "high"])
+        result = tsam_xarray.aggregate(
+            da,
+            time_dim="time",
+            cluster_dim=["variable", "region"],
+            n_clusters=4,
+            n_jobs=None,
+        )
+        assert result.n_clusters == 4
+
+    def test_n_jobs_minus_one(self):
+        """n_jobs=-1 uses all CPUs."""
+        da = _make_da(scenarios=["low", "high"])
+        result = tsam_xarray.aggregate(
+            da,
+            time_dim="time",
+            cluster_dim=["variable", "region"],
+            n_clusters=4,
+            n_jobs=-1,
+        )
+        assert result.n_clusters == 4
+
+    def test_no_slices_ignores_n_jobs(self):
+        """n_jobs is ignored when there are no slice dims."""
+        da = _make_da()
+        result = tsam_xarray.aggregate(
+            da,
+            time_dim="time",
+            cluster_dim=["variable", "region"],
+            n_clusters=4,
+            n_jobs=4,
+        )
+        assert result.n_clusters == 4
