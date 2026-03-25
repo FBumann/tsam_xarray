@@ -2,7 +2,11 @@
 
 Lightweight [xarray](https://xarray.dev/) wrapper for **[tsam](https://github.com/FZJ-IEK3-VSA/tsam)** time series aggregation.
 
-tsam_xarray lets you aggregate multi-dimensional xarray DataArrays using [tsam](https://tsam.readthedocs.io/)'s clustering algorithms — without manual DataFrame conversion.
+tsam_xarray lets you aggregate multi-dimensional xarray DataArrays using [tsam](https://tsam.readthedocs.io/)'s clustering algorithms. It handles:
+
+- **DataFrame conversion** — stack/unstack dimensions automatically
+- **Independent slicing** — aggregate per scenario, year, region, etc. in one call
+- **Result assembly** — typical periods, accuracy metrics, cluster weights, and segment durations are concatenated into coherent multi-dimensional xarray objects
 
 ## Quick example
 
