@@ -16,10 +16,10 @@ from tsam_xarray._result import AccuracyMetrics, AggregationResult
 
 def aggregate(
     da: xr.DataArray,
-    n_clusters: int,
     *,
-    time_dim: str = "time",
-    cluster_dim: Sequence[str] | str | None = None,
+    time_dim: str,
+    cluster_dim: Sequence[str] | str,
+    n_clusters: int,
     weights: dict[str, float] | None = None,
     **tsam_kwargs: Any,
 ) -> AggregationResult:
@@ -29,22 +29,21 @@ def aggregate(
     ----------
     da : xr.DataArray
         Input data with a time dimension and optional extra dimensions.
+    time_dim : str
+        Name of the time dimension.
+    cluster_dim : Sequence[str] | str
+        Dimension(s) to cluster together. Multiple dims are stacked
+        internally into a MultiIndex and unstacked in results.
+        All remaining dims are sliced independently.
     n_clusters : int
         Number of typical periods.
-    time_dim : str
-        Name of the time dimension (default: ``"time"``).
-    cluster_dim : Sequence[str] | str | None
-        Dimension(s) that become DataFrame columns. Multiple dims are
-        stacked internally into a MultiIndex. If ``None`` and the
-        DataArray has exactly two dims, the non-time dim is used.
-        All remaining dims are sliced independently.
     weights : dict[str, float] | None
         Per-column weights passed to ``tsam.aggregate()``.
     **tsam_kwargs
         Additional keyword arguments passed to ``tsam.aggregate()``.
     """
     _validate_time_dim(da, time_dim)
-    col_dims = _resolve_cluster_dim(da, time_dim, cluster_dim)
+    col_dims = _resolve_cluster_dim(cluster_dim)
     slice_dims = _infer_slice_dims(da, time_dim, col_dims)
     _validate(da, time_dim, col_dims, slice_dims)
     _validate_no_cluster_config_weights(tsam_kwargs)
@@ -73,23 +72,12 @@ def aggregate(
 
 
 def _resolve_cluster_dim(
-    da: xr.DataArray,
-    time_dim: str,
-    cluster_dim: Sequence[str] | str | None,
+    cluster_dim: Sequence[str] | str,
 ) -> list[str]:
     """Resolve cluster_dim to a list of dimension names."""
-    if cluster_dim is not None:
-        if isinstance(cluster_dim, str):
-            return [cluster_dim]
-        return list(cluster_dim)
-    non_time = [str(d) for d in da.dims if d != time_dim]
-    if len(non_time) <= 1:
-        return non_time
-    msg = (
-        f"DataArray has multiple non-time dims {non_time}. "
-        "Specify cluster_dim explicitly."
-    )
-    raise ValueError(msg)
+    if isinstance(cluster_dim, str):
+        return [cluster_dim]
+    return list(cluster_dim)
 
 
 def _infer_slice_dims(
