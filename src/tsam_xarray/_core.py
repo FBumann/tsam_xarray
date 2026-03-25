@@ -84,6 +84,9 @@ def aggregate(
         )
         results.append(r)
 
+    # Validate consistent cluster counts (can differ with extremes="append")
+    _validate_consistent_cluster_counts(results, slice_keys)
+
     return _concat_results(results, slice_dims, slice_coords, slice_keys)
 
 
@@ -209,6 +212,26 @@ def _validate_data(
             raise ValueError(msg)
 
     return da
+
+
+def _validate_consistent_cluster_counts(
+    results: list[AggregationResult],
+    slice_keys: list[tuple[Any, ...]],
+) -> None:
+    """Validate all slices produced the same number of clusters."""
+    counts = {k: r.n_clusters for k, r in zip(slice_keys, results, strict=True)}
+    unique = set(counts.values())
+    if len(unique) > 1:
+        msg = (
+            "Slices produced different cluster counts: "
+            f"{counts}. This can happen with "
+            "ExtremeConfig(method='append'). Use "
+            "method='replace', aggregate slices separately, "
+            "or open an issue at "
+            "github.com/FBumann/tsam_xarray/issues "
+            "to discuss expected behaviour."
+        )
+        raise ValueError(msg)
 
 
 def _to_dataframe(

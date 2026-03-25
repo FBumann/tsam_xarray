@@ -1199,3 +1199,37 @@ class TestClusteringIO:
         new_result = clustering.apply(da_flat)
         dis = new_result.disaggregate(new_result.typical_periods)
         xr.testing.assert_allclose(dis, new_result.reconstructed)
+
+
+class TestSliceEdgeCases:
+    def test_cluster_count_mismatch_raises(self):
+        """Mismatched cluster counts across slices raise ValueError."""
+        from tsam_xarray._core import _validate_consistent_cluster_counts
+
+        # Create two real results with different n_clusters
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        r1 = tsam_xarray.aggregate(
+            da_flat, time_dim="time", cluster_dim="variable", n_clusters=3
+        )
+        r2 = tsam_xarray.aggregate(
+            da_flat, time_dim="time", cluster_dim="variable", n_clusters=4
+        )
+        with pytest.raises(ValueError, match="different cluster counts"):
+            _validate_consistent_cluster_counts([r1, r2], [("low",), ("high",)])
+
+    def test_cluster_count_consistent_passes(self):
+        """Same cluster counts across slices passes validation."""
+        from tsam_xarray._core import _validate_consistent_cluster_counts
+
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        r1 = tsam_xarray.aggregate(
+            da_flat, time_dim="time", cluster_dim="variable", n_clusters=4
+        )
+        r2 = tsam_xarray.aggregate(
+            da_flat, time_dim="time", cluster_dim="variable", n_clusters=4
+        )
+        _validate_consistent_cluster_counts(
+            [r1, r2], [("low",), ("high",)]
+        )  # should not raise
