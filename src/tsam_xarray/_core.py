@@ -193,8 +193,6 @@ def _segment_durations_to_da(
     """Convert tsam segment_durations to DataArray."""
     if raw_durations is None:
         return None
-    import numpy as np
-
     data = np.array(raw_durations)  # (n_clusters, n_segments)
     return xr.DataArray(
         data,
