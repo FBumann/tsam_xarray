@@ -50,6 +50,7 @@ nav:
   - Examples:
     - Getting Started: examples/getting-started.ipynb
     - Multi-Dimensional Data: examples/multi-dim.ipynb
+    - Segmentation: examples/segmentation.ipynb
   - API Reference: api/
 
 exclude_docs: |
