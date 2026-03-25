@@ -166,6 +166,10 @@ def _representatives_to_da(
 ) -> xr.DataArray:
     """Convert cluster_representatives DataFrame to DataArray."""
     df = df.copy()
+    # With segmentation, index has 3 levels: (cluster, segment_step, segment_duration)
+    # Without: 2 levels: (cluster, timestep)
+    if df.index.nlevels == 3:
+        df.index = df.index.droplevel(2)  # drop segment_duration
     df.index.names = ["cluster", "timestep"]
 
     if not col_dims:
@@ -181,6 +185,25 @@ def _representatives_to_da(
     stacked = df.stack(df.columns.names, future_stack=True)
     da: xr.DataArray = stacked.to_xarray()  # type: ignore[assignment]
     return da
+
+
+def _segment_durations_to_da(
+    raw_durations: tuple[tuple[int, ...], ...] | None,
+) -> xr.DataArray | None:
+    """Convert tsam segment_durations to DataArray."""
+    if raw_durations is None:
+        return None
+    import numpy as np
+
+    data = np.array(raw_durations)  # (n_clusters, n_segments)
+    return xr.DataArray(
+        data,
+        dims=["cluster", "timestep"],
+        coords={
+            "cluster": np.arange(data.shape[0]),
+            "timestep": np.arange(data.shape[1]),
+        },
+    )
 
 
 def _reconstructed_to_da(
@@ -302,10 +325,13 @@ def _aggregate_single(
         ),
     )
 
+    seg_durations = _segment_durations_to_da(tsam_result.segment_durations)
+
     return AggregationResult(
         typical_periods=typical,
         cluster_assignments=assignments_da,
         cluster_weights=cluster_weights_da,
+        segment_durations=seg_durations,
         accuracy=accuracy,
         reconstructed=reconstructed,
         original=da,
@@ -361,6 +387,12 @@ def _concat_results(
         arrays = [getattr(r, field_name) for r in results]
         return _concat_along_dims(arrays, slice_dims, slice_coords)
 
+    def _optional_field(field_name: str) -> xr.DataArray | None:
+        arrays = [getattr(r, field_name) for r in results]
+        if arrays[0] is None:
+            return None
+        return _concat_along_dims(arrays, slice_dims, slice_coords)
+
     def _acc_field(field_name: str) -> xr.DataArray:
         arrays = [getattr(r.accuracy, field_name) for r in results]
         return _concat_along_dims(arrays, slice_dims, slice_coords)
@@ -369,6 +401,7 @@ def _concat_results(
         typical_periods=_field("typical_periods"),
         cluster_assignments=_field("cluster_assignments"),
         cluster_weights=_field("cluster_weights"),
+        segment_durations=_optional_field("segment_durations"),
         accuracy=AccuracyMetrics(
             rmse=_acc_field("rmse"),
             mae=_acc_field("mae"),
