@@ -1204,28 +1204,32 @@ class TestClusteringIO:
 class TestSliceEdgeCases:
     def test_cluster_count_mismatch_raises(self):
         """Mismatched cluster counts across slices raise ValueError."""
-        from unittest.mock import MagicMock
-
         from tsam_xarray._core import _validate_consistent_cluster_counts
 
-        # Simulate two results with different cluster counts
-        r1 = MagicMock()
-        r1.n_clusters = 4
-        r2 = MagicMock()
-        r2.n_clusters = 5  # different due to extremes
+        # Create two real results with different n_clusters
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        r1 = tsam_xarray.aggregate(
+            da_flat, time_dim="time", cluster_dim="variable", n_clusters=3
+        )
+        r2 = tsam_xarray.aggregate(
+            da_flat, time_dim="time", cluster_dim="variable", n_clusters=4
+        )
         with pytest.raises(ValueError, match="different cluster counts"):
             _validate_consistent_cluster_counts([r1, r2], [("low",), ("high",)])
 
     def test_cluster_count_consistent_passes(self):
         """Same cluster counts across slices passes validation."""
-        from unittest.mock import MagicMock
-
         from tsam_xarray._core import _validate_consistent_cluster_counts
 
-        r1 = MagicMock()
-        r1.n_clusters = 4
-        r2 = MagicMock()
-        r2.n_clusters = 4
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        r1 = tsam_xarray.aggregate(
+            da_flat, time_dim="time", cluster_dim="variable", n_clusters=4
+        )
+        r2 = tsam_xarray.aggregate(
+            da_flat, time_dim="time", cluster_dim="variable", n_clusters=4
+        )
         _validate_consistent_cluster_counts(
             [r1, r2], [("low",), ("high",)]
         )  # should not raise
