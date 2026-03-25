@@ -38,7 +38,7 @@ result = tsam_xarray.aggregate(
     da, time_dim="time", cluster_dim="variable", n_clusters=4,
 )
 
-result.typical_periods   # (cluster, timestep, variable)
+result.cluster_representatives   # (cluster, timestep, variable)
 result.cluster_weights   # (cluster,) — days each cluster represents
 result.accuracy.rmse     # (variable,) — per-variable RMSE
 result.reconstructed     # same shape as input
@@ -55,7 +55,7 @@ result = tsam_xarray.aggregate(
     n_clusters=8,
 )
 
-result.typical_periods  # (scenario, cluster, timestep, variable, region)
+result.cluster_representatives  # (scenario, cluster, timestep, variable, region)
 ```
 
 ## Weights

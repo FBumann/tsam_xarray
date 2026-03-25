@@ -39,7 +39,7 @@ def aggregate(
         All remaining dims are sliced independently.
         Empty ``()`` for 1D time series with no column dimension.
     n_clusters : int
-        Number of typical periods.
+        Number of cluster representatives.
     weights : dict[str, float] | dict[str, dict[str, float]] | None
         Per-coordinate weights for clustering. Missing entries default
         to 1.0. Two formats:
@@ -473,7 +473,7 @@ def _aggregate_single(
     )
 
     return AggregationResult(
-        typical_periods=typical,
+        cluster_representatives=typical,
         cluster_assignments=assignments_da,
         cluster_weights=cluster_weights_da,
         segment_durations=seg_durations,
@@ -559,7 +559,7 @@ def _concat_results(
     )
 
     return AggregationResult(
-        typical_periods=_field("typical_periods"),
+        cluster_representatives=_field("cluster_representatives"),
         cluster_assignments=_field("cluster_assignments"),
         cluster_weights=_field("cluster_weights"),
         segment_durations=_optional_field("segment_durations"),

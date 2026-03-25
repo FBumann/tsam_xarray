@@ -259,7 +259,7 @@ def _apply_single(
     )
 
     return AggregationResult(
-        typical_periods=typical,
+        cluster_representatives=typical,
         cluster_assignments=assignments_da,
         cluster_weights=cluster_weights_da,
         segment_durations=seg_durations,

@@ -25,7 +25,7 @@ class AccuracyMetrics:
 class AggregationResult:
     """Result of tsam_xarray.aggregate()."""
 
-    typical_periods: xr.DataArray
+    cluster_representatives: xr.DataArray
     cluster_assignments: xr.DataArray
     cluster_weights: xr.DataArray
     segment_durations: xr.DataArray | None
@@ -37,13 +37,13 @@ class AggregationResult:
 
     @property
     def n_clusters(self) -> int:
-        """Number of typical period clusters."""
+        """Number of cluster representative clusters."""
         return int(self.cluster_weights.sizes["cluster"])
 
     @property
     def n_timesteps_per_period(self) -> int:
-        """Number of timesteps per typical period."""
-        return int(self.typical_periods.sizes["timestep"])
+        """Number of timesteps per cluster representative."""
+        return int(self.cluster_representatives.sizes["timestep"])
 
     @property
     def n_segments(self) -> int | None:
@@ -61,7 +61,7 @@ class AggregationResult:
         """Map data on ``(cluster, timestep)`` back to original time.
 
         This is the inverse of ``aggregate()``. Use it to expand
-        external data computed on the compact typical-period grid
+        external data computed on the compact cluster-representative grid
         (e.g., optimization results) back to the full time axis.
 
         Without segmentation, values are repeated for each timestep
@@ -73,7 +73,7 @@ class AggregationResult:
         ----------
         data : xr.DataArray
             Data with ``cluster`` and ``timestep`` dims, matching the
-            shape of ``result.typical_periods``. Additional dims
+            shape of ``result.cluster_representatives``. Additional dims
             (including auto-sliced dims like scenario) are supported.
 
         Returns
@@ -114,7 +114,7 @@ class AggregationResult:
         cr = _lookup_clustering(self.clustering.clusterings, key)
 
         return AggregationResult(
-            typical_periods=self.typical_periods.sel(sel),
+            cluster_representatives=self.cluster_representatives.sel(sel),
             cluster_assignments=self.cluster_assignments.sel(sel),
             cluster_weights=self.cluster_weights.sel(sel),
             segment_durations=(

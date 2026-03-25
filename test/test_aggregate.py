@@ -51,9 +51,9 @@ class TestBasicRoundtrip:
             cluster_dim=["variable", "region"],
         )
         expected = {"cluster", "timestep", "variable", "region"}
-        assert set(result.typical_periods.dims) == expected
-        assert result.typical_periods.sizes["cluster"] == 4
-        assert result.typical_periods.sizes["timestep"] == 24
+        assert set(result.cluster_representatives.dims) == expected
+        assert result.cluster_representatives.sizes["cluster"] == 4
+        assert result.cluster_representatives.sizes["timestep"] == 24
 
     def test_cluster_weights_sum(self):
         da = _make_da()
@@ -123,7 +123,7 @@ class TestSingleClusterDim:
             time_dim="time",
             cluster_dim="variable",
         )
-        assert set(result.typical_periods.dims) == {
+        assert set(result.cluster_representatives.dims) == {
             "cluster",
             "timestep",
             "variable",
@@ -140,7 +140,7 @@ class TestSingleClusterDim:
             time_dim="time",
             cluster_dim="variable",
         )
-        assert "variable" in result.typical_periods.dims
+        assert "variable" in result.cluster_representatives.dims
 
 
 class TestAutoSliceDims:
@@ -153,8 +153,8 @@ class TestAutoSliceDims:
             time_dim="time",
             cluster_dim=["variable", "region"],
         )
-        assert "scenario" in result.typical_periods.dims
-        assert result.typical_periods.sizes["scenario"] == 2
+        assert "scenario" in result.cluster_representatives.dims
+        assert result.cluster_representatives.sizes["scenario"] == 2
         assert "scenario" in result.accuracy.rmse.dims
 
     def test_auto_slice_clustering_has_per_slice_keys(self):
@@ -186,10 +186,10 @@ class TestAutoSliceDims:
             time_dim="time",
             cluster_dim="variable",
         )
-        assert "scenario" in result.typical_periods.dims
-        assert "year" in result.typical_periods.dims
-        assert result.typical_periods.sizes["scenario"] == 2
-        assert result.typical_periods.sizes["year"] == 2
+        assert "scenario" in result.cluster_representatives.dims
+        assert "year" in result.cluster_representatives.dims
+        assert result.cluster_representatives.sizes["scenario"] == 2
+        assert result.cluster_representatives.sizes["year"] == 2
 
 
 class TestExplicitTimeDim:
@@ -204,7 +204,7 @@ class TestExplicitTimeDim:
         result = tsam_xarray.aggregate(
             da, n_clusters=4, time_dim="t", cluster_dim="variable"
         )
-        assert result.typical_periods.sizes["cluster"] == 4
+        assert result.cluster_representatives.sizes["cluster"] == 4
 
 
 class TestWeights:
@@ -513,8 +513,8 @@ class TestSegmentation:
         )
         assert result.segment_durations is None
 
-    def test_typical_periods_with_segments(self):
-        """typical_periods timestep dim equals n_segments."""
+    def test_cluster_representatives_with_segments(self):
+        """cluster_representatives timestep dim equals n_segments."""
         from tsam import SegmentConfig
 
         da = _make_da()
@@ -526,12 +526,12 @@ class TestSegmentation:
             n_clusters=4,
             segments=SegmentConfig(n_segments=6),
         )
-        assert result.typical_periods.sizes["timestep"] == 6
+        assert result.cluster_representatives.sizes["timestep"] == 6
 
 
 class TestDisaggregate:
     def test_roundtrip_no_segments(self):
-        """disaggregate(typical_periods) matches reconstructed."""
+        """disaggregate(cluster_representatives) matches reconstructed."""
         da = _make_da()
         da_flat = da.isel(region=0).drop_vars("region")
         result = tsam_xarray.aggregate(
@@ -540,7 +540,7 @@ class TestDisaggregate:
             cluster_dim="variable",
             n_clusters=4,
         )
-        dis = result.disaggregate(result.typical_periods)
+        dis = result.disaggregate(result.cluster_representatives)
         xr.testing.assert_allclose(dis, result.reconstructed)
 
     def test_roundtrip_with_segments_ffill(self):
@@ -556,7 +556,7 @@ class TestDisaggregate:
             n_clusters=4,
             segments=SegmentConfig(n_segments=6),
         )
-        dis = result.disaggregate(result.typical_periods)
+        dis = result.disaggregate(result.cluster_representatives)
         filled = dis.ffill(dim="time")
         xr.testing.assert_allclose(filled, result.reconstructed)
 
@@ -570,7 +570,7 @@ class TestDisaggregate:
             cluster_dim="variable",
             n_clusters=4,
         )
-        dis = result.disaggregate(result.typical_periods)
+        dis = result.disaggregate(result.cluster_representatives)
         assert "time" in dis.dims
         assert "cluster" not in dis.dims
         assert "timestep" not in dis.dims
@@ -585,7 +585,7 @@ class TestDisaggregate:
             cluster_dim=["variable", "region"],
             n_clusters=4,
         )
-        dis = result.disaggregate(result.typical_periods)
+        dis = result.disaggregate(result.cluster_representatives)
         assert dis.dims == result.reconstructed.dims
         np.testing.assert_allclose(dis.values, result.reconstructed.values)
 
@@ -601,7 +601,7 @@ class TestDisaggregate:
             n_clusters=4,
             segments=SegmentConfig(n_segments=6),
         )
-        dis = result.disaggregate(result.typical_periods)
+        dis = result.disaggregate(result.cluster_representatives)
         filled = dis.ffill(dim="time")
         assert filled.dims == result.reconstructed.dims
         np.testing.assert_allclose(filled.values, result.reconstructed.values)
@@ -619,7 +619,7 @@ class TestDisaggregate:
             n_clusters=4,
             segments=SegmentConfig(n_segments=6),
         )
-        dis = result.disaggregate(result.typical_periods)
+        dis = result.disaggregate(result.cluster_representatives)
         assert bool(dis.isnull().any())
 
 
@@ -636,7 +636,7 @@ class Test1DDataArray:
         result = tsam_xarray.aggregate(
             da, time_dim="time", cluster_dim=(), n_clusters=4
         )
-        assert set(result.typical_periods.dims) == {
+        assert set(result.cluster_representatives.dims) == {
             "cluster",
             "timestep",
         }
@@ -654,7 +654,7 @@ class Test1DDataArray:
         result = tsam_xarray.aggregate(
             da, time_dim="time", cluster_dim=(), n_clusters=4
         )
-        dis = result.disaggregate(result.typical_periods)
+        dis = result.disaggregate(result.cluster_representatives)
         assert "time" in dis.dims
         assert dis.sizes["time"] == da.sizes["time"]
 
@@ -715,7 +715,7 @@ class TestDataValidation:
                 cluster_dim="variable",
                 n_clusters=4,
             )
-        assert not hasattr(result.typical_periods.data, "dask")
+        assert not hasattr(result.cluster_representatives.data, "dask")
 
     def test_nan_rejected(self):
         da = _make_da()
@@ -824,8 +824,8 @@ class TestClusteringIO:
             new_result.cluster_assignments.values,
         )
 
-    def test_apply_same_data_matches_typical_periods(self, tmp_path):
-        """Applying clustering to same data reproduces typical periods."""
+    def test_apply_same_data_matches_cluster_representatives(self, tmp_path):
+        """Applying clustering to same data reproduces cluster representatives."""
         da = _make_da()
         da_flat = da.isel(region=0).drop_vars("region")
         result = tsam_xarray.aggregate(
@@ -838,7 +838,9 @@ class TestClusteringIO:
         result.clustering.to_json(str(path))
         clustering = tsam_xarray.load_clustering(str(path))
         new_result = clustering.apply(da_flat)
-        xr.testing.assert_allclose(result.typical_periods, new_result.typical_periods)
+        xr.testing.assert_allclose(
+            result.cluster_representatives, new_result.cluster_representatives
+        )
 
     def test_apply_same_data_matches_accuracy(self, tmp_path):
         """Applying clustering to same data gives same accuracy."""
@@ -876,7 +878,10 @@ class TestClusteringIO:
         new_result = clustering.apply(da2_flat)
         # Same structure, different values
         assert new_result.n_clusters == 4
-        assert new_result.typical_periods.dims == result.typical_periods.dims
+        assert (
+            new_result.cluster_representatives.dims
+            == result.cluster_representatives.dims
+        )
         assert new_result.is_transferred
 
     def test_apply_marks_is_transferred(self, tmp_path):
@@ -925,9 +930,9 @@ class TestClusteringIO:
         result.clustering.to_json(str(path))
         clustering = tsam_xarray.load_clustering(str(path))
         new_result = clustering.apply(da)
-        assert "scenario" in new_result.typical_periods.dims
+        assert "scenario" in new_result.cluster_representatives.dims
         assert new_result.n_clusters == 4
-        assert new_result.typical_periods.sizes["scenario"] == 2
+        assert new_result.cluster_representatives.sizes["scenario"] == 2
 
     def test_apply_sliced_values_match(self, tmp_path):
         """Apply sliced clustering to same data reproduces values."""
@@ -943,8 +948,8 @@ class TestClusteringIO:
         clustering = tsam_xarray.load_clustering(str(path))
         new_result = clustering.apply(da)
         np.testing.assert_allclose(
-            result.typical_periods.values,
-            new_result.typical_periods.values,
+            result.cluster_representatives.values,
+            new_result.cluster_representatives.values,
         )
 
     def test_clustering_property_single(self):
@@ -1003,7 +1008,7 @@ class TestClusteringIO:
         result.clustering.to_json(str(path))
         clustering = tsam_xarray.load_clustering(str(path))
         new_result = clustering.apply(da)
-        assert set(new_result.typical_periods.dims) == {
+        assert set(new_result.cluster_representatives.dims) == {
             "cluster",
             "timestep",
             "variable",
@@ -1023,7 +1028,7 @@ class TestClusteringIO:
         # Rename dim and apply with override
         da_renamed = da_flat.rename({"variable": "source"})
         new_result = result.clustering.apply(da_renamed, cluster_dim="source")
-        assert "source" in new_result.typical_periods.dims
+        assert "source" in new_result.cluster_representatives.dims
 
     def test_apply_rejects_missing_time_dim(self):
         """apply() raises if time_dim not in new data."""
@@ -1085,7 +1090,10 @@ class TestClusteringIO:
         assert clustering.time_dim == "t"
         new_result = clustering.apply(da)
         assert new_result.n_clusters == result.n_clusters
-        assert new_result.typical_periods.dims == result.typical_periods.dims
+        assert (
+            new_result.cluster_representatives.dims
+            == result.cluster_representatives.dims
+        )
 
     def test_json_file_structure(self, tmp_path):
         """JSON has expected top-level keys and array-based clustering keys."""
@@ -1146,7 +1154,7 @@ class TestClusteringIO:
         clustering = tsam_xarray.load_clustering(str(path))
         # Apply to both solar and wind
         new_result = clustering.apply(da_flat)
-        assert set(new_result.typical_periods.coords["variable"].values) == {
+        assert set(new_result.cluster_representatives.coords["variable"].values) == {
             "solar",
             "wind",
         }
@@ -1165,8 +1173,8 @@ class TestClusteringIO:
         clustering = tsam_xarray.load_clustering(str(path))
         new_result = clustering.apply(da)
         np.testing.assert_allclose(
-            result.typical_periods.values,
-            new_result.typical_periods.values,
+            result.cluster_representatives.values,
+            new_result.cluster_representatives.values,
         )
 
     def test_slice_dims_preserved_in_json(self, tmp_path):
@@ -1197,7 +1205,7 @@ class TestClusteringIO:
         result.clustering.to_json(str(path))
         clustering = tsam_xarray.load_clustering(str(path))
         new_result = clustering.apply(da_flat)
-        dis = new_result.disaggregate(new_result.typical_periods)
+        dis = new_result.disaggregate(new_result.cluster_representatives)
         xr.testing.assert_allclose(dis, new_result.reconstructed)
 
 
