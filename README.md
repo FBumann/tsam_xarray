@@ -19,10 +19,18 @@ pip install tsam_xarray
 ## Quick start
 
 ```python
+import numpy as np
+import pandas as pd
+import xarray as xr
 import tsam_xarray
-from tsam_xarray import sample_energy_data
 
-da = sample_energy_data(n_days=30)  # (time, variable, region, scenario)
+# Create sample data: 30 days of hourly solar and wind data
+time = pd.date_range("2020-01-01", periods=30 * 24, freq="h")
+da = xr.DataArray(
+    np.random.default_rng(42).random((len(time), 2)),
+    dims=["time", "variable"],
+    coords={"time": time, "variable": ["solar", "wind"]},
+)
 
 # Aggregate to 4 typical days
 result = tsam_xarray.aggregate(
