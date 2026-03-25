@@ -10,18 +10,22 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
 dependencies = [
+    "notebook>=7.5.5",
     "tsam>=3.2.0",
     "xarray>=2024.1",
 ]
 
 [dependency-groups]
 docs = [
+    "mkdocs>=1,<2",
     "mkdocs-material>=9",
     "mkdocs-jupyter>=0.25",
     "mkdocs-gen-files>=0.5",
     "mkdocs-literate-nav>=0.6",
     "mkdocstrings[python]>=0.27",
     "ipykernel>=6",
+    "xarray-plotly>=0.0.14",
+    "mkdocs-plotly-plugin>=0.1",
 ]
 dev = [
     {include-group = "docs"},

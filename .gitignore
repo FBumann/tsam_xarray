@@ -21,8 +21,15 @@ htmlcov/
 # mypy
 .mypy_cache/
 
+# hatch-vcs generated
+src/tsam_xarray/_version.py
+
 # uv
 uv.lock
+
+# Docs build
+site/
+.cache/
 
 # OS
 .DS_Store
