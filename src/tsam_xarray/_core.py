@@ -19,7 +19,7 @@ def aggregate(
     n_clusters: int,
     *,
     time_dim: str = "time",
-    column_dims: Sequence[str] | str | None = None,
+    cluster_dim: Sequence[str] | str | None = None,
     weights: dict[str, float] | None = None,
     **tsam_kwargs: Any,
 ) -> AggregationResult:
@@ -33,7 +33,7 @@ def aggregate(
         Number of typical periods.
     time_dim : str
         Name of the time dimension (default: ``"time"``).
-    column_dims : Sequence[str] | str | None
+    cluster_dim : Sequence[str] | str | None
         Dimension(s) that become DataFrame columns. Multiple dims are
         stacked internally into a MultiIndex. If ``None`` and the
         DataArray has exactly two dims, the non-time dim is used.
@@ -44,7 +44,7 @@ def aggregate(
         Additional keyword arguments passed to ``tsam.aggregate()``.
     """
     _validate_time_dim(da, time_dim)
-    col_dims = _resolve_column_dims(da, time_dim, column_dims)
+    col_dims = _resolve_cluster_dim(da, time_dim, cluster_dim)
     slice_dims = _infer_slice_dims(da, time_dim, col_dims)
     _validate(da, time_dim, col_dims, slice_dims)
 
@@ -71,22 +71,22 @@ def aggregate(
     return _concat_results(results, slice_dims, slice_coords, raw_map)
 
 
-def _resolve_column_dims(
+def _resolve_cluster_dim(
     da: xr.DataArray,
     time_dim: str,
-    column_dims: Sequence[str] | str | None,
+    cluster_dim: Sequence[str] | str | None,
 ) -> list[str]:
-    """Resolve column_dims to a list of dimension names."""
-    if column_dims is not None:
-        if isinstance(column_dims, str):
-            return [column_dims]
-        return list(column_dims)
+    """Resolve cluster_dim to a list of dimension names."""
+    if cluster_dim is not None:
+        if isinstance(cluster_dim, str):
+            return [cluster_dim]
+        return list(cluster_dim)
     non_time = [str(d) for d in da.dims if d != time_dim]
     if len(non_time) <= 1:
         return non_time
     msg = (
         f"DataArray has multiple non-time dims {non_time}. "
-        "Specify column_dims explicitly."
+        "Specify cluster_dim explicitly."
     )
     raise ValueError(msg)
 
@@ -116,10 +116,10 @@ def _validate(
     dims = set(da.dims)
     for d in col_dims:
         if d not in dims:
-            msg = f"column_dims entry {d!r} not in DataArray dims {dims}"
+            msg = f"cluster_dim entry {d!r} not in DataArray dims {dims}"
             raise ValueError(msg)
         if d == time_dim:
-            msg = "column_dims and time_dim must not overlap"
+            msg = "cluster_dim and time_dim must not overlap"
             raise ValueError(msg)
 
 

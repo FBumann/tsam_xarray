@@ -26,9 +26,9 @@ uv run mkdocs build             # docs (build)
 ## Key design decisions
 
 - **DataArray in, DataArray out** — no Dataset API
-- **`column_dims`** — dims to cluster together; stacked internally into MultiIndex, results auto-unstacked
-- **Auto-slicing** — all dims not in `time_dim` or `column_dims` are sliced independently
-- **`time_dim` defaults to `"time"`** — auto-detected `column_dims` for 2D arrays
+- **`cluster_dim`** — dims to cluster together; stacked internally into MultiIndex, results auto-unstacked
+- **Auto-slicing** — all dims not in `time_dim` or `cluster_dim` are sliced independently
+- **`time_dim` defaults to `"time"`** — auto-detected `cluster_dim` for 2D arrays
 - **tsam v3 API only** — `tsam.aggregate()`, never the legacy `TimeSeriesAggregation`
 - **MultiIndex passthrough** — pandas MultiIndex flows through tsam natively (no string separator)
 - **Slice dims are uniform** — same params across all slices; per-slice params = user loops manually

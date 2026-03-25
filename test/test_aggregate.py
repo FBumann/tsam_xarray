@@ -45,7 +45,7 @@ class TestBasicRoundtrip:
     def test_dims_and_shapes(self):
         da = _make_da()
         result = tsam_xarray.aggregate(
-            da, n_clusters=4, column_dims=["variable", "region"]
+            da, n_clusters=4, cluster_dim=["variable", "region"]
         )
         expected = {"cluster", "timestep", "variable", "region"}
         assert set(result.typical_periods.dims) == expected
@@ -55,14 +55,14 @@ class TestBasicRoundtrip:
     def test_cluster_weights_sum(self):
         da = _make_da()
         result = tsam_xarray.aggregate(
-            da, n_clusters=4, column_dims=["variable", "region"]
+            da, n_clusters=4, cluster_dim=["variable", "region"]
         )
         assert int(result.cluster_weights.sum()) == 30
 
     def test_cluster_assignments_shape(self):
         da = _make_da()
         result = tsam_xarray.aggregate(
-            da, n_clusters=4, column_dims=["variable", "region"]
+            da, n_clusters=4, cluster_dim=["variable", "region"]
         )
         assert result.cluster_assignments.dims == ("period",)
         assert result.cluster_assignments.sizes["period"] == 30
@@ -70,7 +70,7 @@ class TestBasicRoundtrip:
     def test_accuracy_dims(self):
         da = _make_da()
         result = tsam_xarray.aggregate(
-            da, n_clusters=4, column_dims=["variable", "region"]
+            da, n_clusters=4, cluster_dim=["variable", "region"]
         )
         for field in ("rmse", "mae", "rmse_duration"):
             metric = getattr(result.accuracy, field)
@@ -79,7 +79,7 @@ class TestBasicRoundtrip:
     def test_reconstructed_shape(self):
         da = _make_da()
         result = tsam_xarray.aggregate(
-            da, n_clusters=4, column_dims=["variable", "region"]
+            da, n_clusters=4, cluster_dim=["variable", "region"]
         )
         expected = {"time", "variable", "region"}
         assert set(result.reconstructed.dims) == expected
@@ -88,7 +88,7 @@ class TestBasicRoundtrip:
     def test_raw_is_tsam_result(self):
         da = _make_da()
         result = tsam_xarray.aggregate(
-            da, n_clusters=4, column_dims=["variable", "region"]
+            da, n_clusters=4, cluster_dim=["variable", "region"]
         )
         from tsam.result import AggregationResult as TsamResult
 
@@ -108,17 +108,17 @@ class TestSingleColumnDim:
         assert set(result.accuracy.rmse.dims) == {"variable"}
 
     def test_auto_detect(self):
-        """With 2 dims (time + one other), column_dims auto-detected."""
+        """With 2 dims (time + one other), cluster_dim auto-detected."""
         da = _make_da()
         da_flat = da.isel(region=0).drop_vars("region")
         result = tsam_xarray.aggregate(da_flat, n_clusters=4)
         assert "variable" in result.typical_periods.dims
 
-    def test_string_column_dims(self):
-        """column_dims accepts a single string."""
+    def test_string_cluster_dim(self):
+        """cluster_dim accepts a single string."""
         da = _make_da()
         da_flat = da.isel(region=0).drop_vars("region")
-        result = tsam_xarray.aggregate(da_flat, n_clusters=4, column_dims="variable")
+        result = tsam_xarray.aggregate(da_flat, n_clusters=4, cluster_dim="variable")
         assert "variable" in result.typical_periods.dims
 
 
@@ -141,10 +141,10 @@ class TestNoColumnDims:
 
 class TestAutoSliceDims:
     def test_extra_dims_auto_sliced(self):
-        """Dims not in time or column_dims are automatically sliced."""
+        """Dims not in time or cluster_dim are automatically sliced."""
         da = _make_da(scenarios=["low", "high"])
         result = tsam_xarray.aggregate(
-            da, n_clusters=4, column_dims=["variable", "region"]
+            da, n_clusters=4, cluster_dim=["variable", "region"]
         )
         assert "scenario" in result.typical_periods.dims
         assert result.typical_periods.sizes["scenario"] == 2
@@ -153,7 +153,7 @@ class TestAutoSliceDims:
     def test_auto_slice_raw_is_dict(self):
         da = _make_da(scenarios=["low", "high"])
         result = tsam_xarray.aggregate(
-            da, n_clusters=4, column_dims=["variable", "region"]
+            da, n_clusters=4, cluster_dim=["variable", "region"]
         )
         assert isinstance(result.raw, dict)
         assert len(result.raw) == 2
@@ -171,7 +171,7 @@ class TestAutoSliceDims:
                 "year": [2020, 2021],
             },
         )
-        result = tsam_xarray.aggregate(da, n_clusters=4, column_dims="variable")
+        result = tsam_xarray.aggregate(da, n_clusters=4, cluster_dim="variable")
         assert "scenario" in result.typical_periods.dims
         assert "year" in result.typical_periods.dims
         assert result.typical_periods.sizes["scenario"] == 2
@@ -216,18 +216,18 @@ class TestValidation:
         with pytest.raises(ValueError, match=r"time_dim.*not in"):
             tsam_xarray.aggregate(da_flat, n_clusters=4, time_dim="nonexistent")
 
-    def test_invalid_column_dims(self):
+    def test_invalid_cluster_dim(self):
         da = _make_da()
-        with pytest.raises(ValueError, match="column_dims"):
-            tsam_xarray.aggregate(da, n_clusters=4, column_dims=["nonexistent"])
+        with pytest.raises(ValueError, match="cluster_dim"):
+            tsam_xarray.aggregate(da, n_clusters=4, cluster_dim=["nonexistent"])
 
-    def test_column_dims_overlaps_time(self):
+    def test_cluster_dim_overlaps_time(self):
         da = _make_da()
         with pytest.raises(ValueError, match="overlap"):
-            tsam_xarray.aggregate(da, n_clusters=4, column_dims=["time", "variable"])
+            tsam_xarray.aggregate(da, n_clusters=4, cluster_dim=["time", "variable"])
 
     def test_ambiguous_auto_detect(self):
-        """Multiple non-time dims without column_dims raises."""
+        """Multiple non-time dims without cluster_dim raises."""
         da = _make_da()
         with pytest.raises(ValueError, match="multiple non-time"):
             tsam_xarray.aggregate(da, n_clusters=4)
