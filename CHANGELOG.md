@@ -1,1 +1,19 @@
 # Changelog
+
+## 0.0.1-alpha.0 (2026-03-25)
+
+
+### Features
+
+* dict-based weights API ([#31](https://github.com/FBumann/tsam_xarray/issues/31)) ([1141f61](https://github.com/FBumann/tsam_xarray/commit/1141f6113448f151f87ac65950aba087a479da1b))
+* implement aggregate() API with stack_dims and slice_dims ([#9](https://github.com/FBumann/tsam_xarray/issues/9)) ([dc1070c](https://github.com/FBumann/tsam_xarray/commit/dc1070c2aec930214d1896c2f86782e0e5301add))
+* per-dimension weight mapping for multi-dim cluster_dim ([#26](https://github.com/FBumann/tsam_xarray/issues/26)) ([18e62f5](https://github.com/FBumann/tsam_xarray/commit/18e62f555ffe9bcf99c5156101cc903347625b38))
+* segment_durations as DataArray and disaggregate() method ([#28](https://github.com/FBumann/tsam_xarray/issues/28)) ([9358696](https://github.com/FBumann/tsam_xarray/commit/9358696b81011fe7708a51cd71962a9f00e27e02))
+
+
+### Bug Fixes
+
+* configure release-please for 0.0.1-alpha prerelease ([#29](https://github.com/FBumann/tsam_xarray/issues/29)) ([8036b30](https://github.com/FBumann/tsam_xarray/commit/8036b30041a2c6df6329481ec36cd62efb8e92bd))
+* replace remaining my-package placeholder in docs/index.md ([e4f5dc0](https://github.com/FBumann/tsam_xarray/commit/e4f5dc0229d24b75828f3ba02a85db3417c17ef5))
+
+## Changelog
