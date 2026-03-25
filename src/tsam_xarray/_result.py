@@ -32,9 +32,8 @@ class AggregationResult:
     accuracy: AccuracyMetrics
     reconstructed: xr.DataArray
     original: xr.DataArray
-    raw: Any  # tsam.AggregationResult or dict of them
-    _time_dim: str = "time"
-    _cluster_dim: list[str] | None = None
+    clustering: ClusteringInfo
+    is_transferred: bool = False
 
     @property
     def n_clusters(self) -> int:
@@ -49,69 +48,14 @@ class AggregationResult:
     @property
     def n_segments(self) -> int | None:
         """Number of segments per period, if segmentation was used."""
-        if isinstance(self.raw, dict):
-            first = next(iter(self.raw.values()))
-            result: int | None = first.n_segments
-        else:
-            result = self.raw.n_segments
+        first_cr = next(iter(self.clustering.clusterings.values()))
+        result: int | None = first_cr.n_segments
         return result
-
-    @property
-    def clustering_duration(self) -> float:
-        """Time spent on clustering in seconds."""
-        if isinstance(self.raw, dict):
-            total: float = sum(r.clustering_duration for r in self.raw.values())
-            return total
-        duration: float = self.raw.clustering_duration
-        return duration
-
-    @property
-    def is_transferred(self) -> bool:
-        """Whether result was created via ClusteringResult.apply()."""
-        if isinstance(self.raw, dict):
-            return all(r.is_transferred for r in self.raw.values())
-        is_transferred: bool = self.raw.is_transferred
-        return is_transferred
 
     @property
     def residuals(self) -> xr.DataArray:
         """Difference between original and reconstructed data."""
         return self.original - self.reconstructed
-
-    @property
-    def clustering(self) -> ClusteringInfo:
-        """Reusable clustering for ``apply()`` and IO.
-
-        Returns
-        -------
-        ClusteringInfo
-            Contains the tsam ClusteringResult(s) and dim metadata.
-        """
-        from tsam_xarray._clustering import ClusteringInfo
-
-        col_dims = self._cluster_dim or []
-        clusterings: dict[tuple[str, ...], Any] = {}
-        if isinstance(self.raw, dict):
-            for key, tsam_result in self.raw.items():
-                str_key = tuple(str(k) for k in key)
-                clusterings[str_key] = tsam_result.clustering
-        else:
-            clusterings[()] = self.raw.clustering
-        return ClusteringInfo(
-            time_dim=self._time_dim,
-            cluster_dim=col_dims,
-            clusterings=clusterings,
-        )
-
-    def save_clustering(self, path: str) -> None:
-        """Save clustering to JSON for later ``apply()``.
-
-        Parameters
-        ----------
-        path : str
-            Output file path.
-        """
-        self.clustering.to_json(path)
 
     def disaggregate(self, data: xr.DataArray) -> xr.DataArray:
         """Map data on ``(cluster, timestep)`` back to original time.
@@ -138,8 +82,6 @@ class AggregationResult:
             Data with ``cluster`` and ``timestep`` replaced by the
             original ``time`` dimension.
         """
-        # Identify slice dims (dims on data that aren't cluster/timestep
-        # and aren't cluster_dim coords)
         slice_dims = [
             str(d)
             for d in data.dims
@@ -149,7 +91,6 @@ class AggregationResult:
         if not slice_dims:
             return self._disaggregate_single(data)
 
-        # Loop over slice dims and concat
         import itertools
 
         slice_coords = {d: data.coords[d].values for d in slice_dims}
@@ -158,44 +99,46 @@ class AggregationResult:
         for key in keys:
             sel = dict(zip(slice_dims, key, strict=True))
             data_slice = data.sel(sel)
-            # Use per-slice raw result for assignments/durations
             result_slice = self._make_slice_view(sel)
             results.append(result_slice._disaggregate_single(data_slice))
 
-        # Concat along slice dims
-        out = results[0]
-        if len(slice_dims) == 1:
-            import pandas as pd
+        import pandas as pd
 
-            out = xr.concat(
+        if len(slice_dims) == 1:
+            return xr.concat(
                 results,
                 dim=pd.Index(
                     slice_coords[slice_dims[0]],
                     name=slice_dims[0],
                 ),
             )
-        else:
-            import pandas as pd
 
-            # Multi-dim concat
-            it = iter(results)
+        it = iter(results)
 
-            def _nest(dims: list[str]) -> list:  # type: ignore[type-arg]
-                if len(dims) == 1:
-                    return [next(it) for _ in slice_coords[dims[0]]]
-                return [_nest(dims[1:]) for _ in slice_coords[dims[0]]]
+        def _nest(dims: list[str]) -> list:  # type: ignore[type-arg]
+            if len(dims) == 1:
+                return [next(it) for _ in slice_coords[dims[0]]]
+            return [_nest(dims[1:]) for _ in slice_coords[dims[0]]]
 
-            nested = _nest(slice_dims)
-            for dim in reversed(slice_dims):
-                idx = pd.Index(slice_coords[dim], name=dim)
-                if isinstance(nested[0], list):
-                    nested = [xr.concat(group, dim=idx) for group in nested]
-                else:
-                    out = xr.concat(nested, dim=idx)
-        return out
+        nested: Any = _nest(slice_dims)
+        for dim in reversed(slice_dims):
+            idx = pd.Index(slice_coords[dim], name=dim)
+            if isinstance(nested[0], list):
+                nested = [xr.concat(group, dim=idx) for group in nested]
+            else:
+                nested = xr.concat(nested, dim=idx)
+        return nested  # type: ignore[no-any-return]
 
     def _make_slice_view(self, sel: dict[str, object]) -> AggregationResult:
         """Create a view of this result for a single slice."""
+        from tsam_xarray._clustering import (
+            ClusteringInfo,
+            _lookup_clustering,
+        )
+
+        key = tuple(sel.values())
+        cr = _lookup_clustering(self.clustering.clusterings, key)
+
         return AggregationResult(
             typical_periods=self.typical_periods.sel(sel),
             cluster_assignments=self.cluster_assignments.sel(sel),
@@ -212,10 +155,10 @@ class AggregationResult:
             ),
             reconstructed=self.reconstructed.sel(sel),
             original=self.original.sel(sel),
-            raw=(
-                self.raw[tuple(sel.values())]
-                if isinstance(self.raw, dict)
-                else self.raw
+            clustering=ClusteringInfo(
+                time_dim=self.clustering.time_dim,
+                cluster_dim=self.clustering.cluster_dim,
+                clusterings={(): cr},
             ),
         )
 

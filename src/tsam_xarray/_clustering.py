@@ -28,7 +28,7 @@ class ClusteringInfo:
 
     time_dim: str
     cluster_dim: list[str]
-    clusterings: dict[tuple[str, ...], ClusteringResult]
+    clusterings: dict[tuple[Hashable, ...], ClusteringResult]
     """Per-slice clustering. Single entry ``{(): result}`` when no slicing."""
 
     def apply(
@@ -83,18 +83,15 @@ class ClusteringInfo:
         slice_keys = list(itertools.product(*(slice_coords[d] for d in slice_dims)))
 
         results: list[AggregationResult] = []
-        raw_map: dict[tuple[Hashable, ...], Any] = {}
 
         for key in slice_keys:
             sel = dict(zip(slice_dims, key, strict=True))
             da_slice = da.sel(sel)
-            str_key = tuple(str(k) for k in key)
-            cr = self.clusterings[str_key]
+            cr = _lookup_clustering(self.clusterings, key)
             r = _apply_single(da_slice, cr, td, cd, tsam_kwargs)
             results.append(r)
-            raw_map[key] = r.raw
 
-        return _concat_results(results, slice_dims, slice_coords, raw_map)
+        return _concat_results(results, slice_dims, slice_coords, slice_keys)
 
     def to_json(self, path: str | Path) -> None:
         """Save clustering to JSON file.
@@ -110,7 +107,7 @@ class ClusteringInfo:
             "clusterings": {},
         }
         for key, cr in self.clusterings.items():
-            str_key = "|".join(key) if key else ""
+            str_key = "|".join(str(k) for k in key) if key else ""
             data["clusterings"][str_key] = cr.to_dict()
 
         with Path(path).open("w") as f:
@@ -132,7 +129,7 @@ class ClusteringInfo:
         with Path(path).open() as f:
             data = json.load(f)
 
-        clusterings: dict[tuple[str, ...], ClusteringResult] = {}
+        clusterings: dict[tuple[Hashable, ...], ClusteringResult] = {}
         for str_key, cr_dict in data["clusterings"].items():
             key = tuple(str_key.split("|")) if str_key else ()
             clusterings[key] = ClusteringResult.from_dict(cr_dict)
@@ -144,48 +141,52 @@ class ClusteringInfo:
         )
 
 
+def _lookup_clustering(
+    clusterings: dict[tuple[Hashable, ...], ClusteringResult],
+    key: tuple[Any, ...],
+) -> ClusteringResult:
+    """Look up clustering by key, matching by string comparison."""
+    # Try exact match first
+    if key in clusterings:
+        return clusterings[key]
+    # Fall back to string comparison (handles JSON round-trip type loss)
+    str_key = tuple(str(k) for k in key)
+    for stored_key, cr in clusterings.items():
+        if tuple(str(k) for k in stored_key) == str_key:
+            return cr
+    msg = f"No stored clustering for key {key}"
+    raise KeyError(msg)
+
+
 def _validate_apply(
     da: xr.DataArray,
     time_dim: str,
     col_dims: list[str],
-    clusterings: dict[tuple[str, ...], ClusteringResult],
+    clusterings: dict[tuple[Hashable, ...], ClusteringResult],
 ) -> None:
     """Validate data is compatible with stored clustering."""
-    # time_dim must exist
     if time_dim not in da.dims:
         msg = f"time_dim {time_dim!r} not in DataArray dims {set(da.dims)}"
         raise ValueError(msg)
 
-    # cluster_dim must exist
     for d in col_dims:
         if d not in da.dims:
             msg = f"cluster_dim {d!r} not in DataArray dims {set(da.dims)}"
             raise ValueError(msg)
 
-    # Slice dims must match stored clustering keys
     slice_dims = _infer_slice_dims(da, time_dim, col_dims)
     if slice_dims:
         import itertools
 
         slice_coords = {d: da.coords[d].values for d in slice_dims}
-        data_keys = {
-            tuple(str(k) for k in key)
-            for key in itertools.product(*(slice_coords[d] for d in slice_dims))
-        }
-        stored_keys = set(clusterings.keys())
-        missing = data_keys - stored_keys
-        if missing:
-            msg = (
-                f"No stored clustering for slice coordinates: "
-                f"{missing}. Stored keys: {stored_keys}"
-            )
-            raise ValueError(msg)
+        for key in itertools.product(*(slice_coords[d] for d in slice_dims)):
+            try:
+                _lookup_clustering(clusterings, key)
+            except KeyError:
+                msg = f"No stored clustering for slice coordinate {key}"
+                raise ValueError(msg) from None
     elif () not in clusterings:
-        msg = (
-            "Data has no slice dims but clustering was "
-            "created with slicing. Provide data with matching "
-            "slice dimensions."
-        )
+        msg = "Data has no slice dims but clustering was created with slicing."
         raise ValueError(msg)
 
 
@@ -239,6 +240,12 @@ def _apply_single(
 
     seg_durations = _segment_durations_to_da(tsam_result.segment_durations)
 
+    clustering_info = ClusteringInfo(
+        time_dim=time_dim,
+        cluster_dim=col_dims,
+        clusterings={(): tsam_result.clustering},
+    )
+
     return AggregationResult(
         typical_periods=typical,
         cluster_assignments=assignments_da,
@@ -247,7 +254,6 @@ def _apply_single(
         accuracy=accuracy,
         reconstructed=reconstructed,
         original=da,
-        raw=tsam_result,
-        _time_dim=time_dim,
-        _cluster_dim=col_dims,
+        clustering=clustering_info,
+        is_transferred=True,
     )
