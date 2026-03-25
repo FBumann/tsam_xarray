@@ -209,17 +209,218 @@ class TestExplicitTimeDim:
 
 
 class TestWeights:
-    def test_weights_simple(self):
+    def test_weights_affect_clustering(self):
+        """Weighted and unweighted produce different results."""
         da = _make_da()
         da_flat = da.isel(region=0).drop_vars("region")
-        result = tsam_xarray.aggregate(
+        w = xr.DataArray(
+            [10.0, 0.1],
+            dims=["variable"],
+            coords={"variable": ["solar", "wind"]},
+        )
+        result_no_w = tsam_xarray.aggregate(
             da_flat,
-            n_clusters=4,
             time_dim="time",
             cluster_dim="variable",
-            weights={"solar": 2.0, "wind": 1.0},
+            n_clusters=4,
         )
-        assert result.typical_periods.sizes["cluster"] == 4
+        result_w = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+            weights=w,
+        )
+        # Weighting solar 10x should improve solar RMSE
+        # at the expense of wind RMSE
+        rmse_no_w = result_no_w.accuracy.rmse
+        rmse_w = result_w.accuracy.rmse
+        assert float(rmse_w.sel(variable="solar")) < float(
+            rmse_no_w.sel(variable="solar")
+        )
+
+    def test_weights_passed_to_tsam(self):
+        """Verify weights reach tsam's internal weightDict."""
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        w = xr.DataArray(
+            [2.0, 1.0],
+            dims=["variable"],
+            coords={"variable": ["solar", "wind"]},
+        )
+        result = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+            weights=w,
+        )
+        # tsam stores weights in the internal aggregation object
+        tsam_weights = result.raw._aggregation.weightDict
+        assert tsam_weights["solar"] == 2.0
+        assert tsam_weights["wind"] == 1.0
+
+    def test_weights_broadcast_passed_to_tsam(self):
+        """Single-dim weights broadcast correctly to MultiIndex columns."""
+        da = _make_da()
+        w = xr.DataArray(
+            [2.0, 1.0],
+            dims=["variable"],
+            coords={"variable": ["solar", "wind"]},
+        )
+        result = tsam_xarray.aggregate(
+            da,
+            time_dim="time",
+            cluster_dim=["variable", "region"],
+            n_clusters=4,
+            weights=w,
+        )
+        tsam_weights = result.raw._aggregation.weightDict
+        # solar columns should all be 2.0, wind 1.0
+        for col, weight in tsam_weights.items():
+            if col[0] == "solar":
+                assert weight == 2.0
+            else:
+                assert weight == 1.0
+
+    def test_weights_multi_dim_passed_to_tsam(self):
+        """Multi-dim weights are multiplied and passed to tsam."""
+        da = _make_da()
+        w = xr.DataArray(
+            [[6.0, 3.0], [2.0, 1.0]],
+            dims=["variable", "region"],
+            coords={
+                "variable": ["solar", "wind"],
+                "region": ["north", "south"],
+            },
+        )
+        result = tsam_xarray.aggregate(
+            da,
+            time_dim="time",
+            cluster_dim=["variable", "region"],
+            n_clusters=4,
+            weights=w,
+        )
+        tsam_weights = result.raw._aggregation.weightDict
+        assert tsam_weights[("solar", "north")] == 6.0
+        assert tsam_weights[("solar", "south")] == 3.0
+        assert tsam_weights[("wind", "north")] == 2.0
+        assert tsam_weights[("wind", "south")] == 1.0
+
+    def test_weights_rejects_non_cluster_dims(self):
+        """Weights with dims not in cluster_dim raises."""
+        da = _make_da()
+        w = xr.DataArray(
+            [1.0, 2.0],
+            dims=["scenario"],
+            coords={"scenario": ["low", "high"]},
+        )
+        with pytest.raises(ValueError, match="not in cluster_dim"):
+            tsam_xarray.aggregate(
+                da,
+                time_dim="time",
+                cluster_dim=["variable", "region"],
+                n_clusters=4,
+                weights=w,
+            )
+
+
+class TestWeightTranslation:
+    """Verify weight values are correctly translated."""
+
+    def test_single_dim_values(self):
+        from tsam_xarray._core import _weights_to_tsam
+
+        w = xr.DataArray(
+            [2.0, 0.5],
+            dims=["variable"],
+            coords={"variable": ["solar", "wind"]},
+        )
+        df = pd.DataFrame(
+            {"solar": [1.0], "wind": [2.0]},
+            index=pd.date_range("2020-01-01", periods=1, freq="h"),
+        )
+        flat = _weights_to_tsam(w, df, ["variable"])
+        assert flat["solar"] == 2.0
+        assert flat["wind"] == 0.5
+
+    def test_multi_dim_broadcast(self):
+        """Single-dim weights broadcast across other dims."""
+        from tsam_xarray._core import _weights_to_tsam
+
+        w = xr.DataArray(
+            [2.0, 1.0],
+            dims=["variable"],
+            coords={"variable": ["solar", "wind"]},
+        )
+        cols = pd.MultiIndex.from_tuples(
+            [
+                ("solar", "north"),
+                ("solar", "south"),
+                ("wind", "north"),
+                ("wind", "south"),
+            ],
+            names=["variable", "region"],
+        )
+        df = pd.DataFrame(
+            [[1, 2, 3, 4]],
+            columns=cols,
+            index=pd.date_range("2020-01-01", periods=1, freq="h"),
+        )
+        flat = _weights_to_tsam(w, df, ["variable", "region"])
+        assert flat[("solar", "north")] == 2.0
+        assert flat[("solar", "south")] == 2.0
+        assert flat[("wind", "north")] == 1.0
+        assert flat[("wind", "south")] == 1.0
+
+    def test_multi_dim_full(self):
+        """Full multi-dim weights are looked up directly."""
+        from tsam_xarray._core import _weights_to_tsam
+
+        w = xr.DataArray(
+            [[3.0, 1.5], [1.0, 2.0]],
+            dims=["variable", "region"],
+            coords={
+                "variable": ["solar", "wind"],
+                "region": ["north", "south"],
+            },
+        )
+        cols = pd.MultiIndex.from_tuples(
+            [
+                ("solar", "north"),
+                ("solar", "south"),
+                ("wind", "north"),
+                ("wind", "south"),
+            ],
+            names=["variable", "region"],
+        )
+        df = pd.DataFrame(
+            [[1, 2, 3, 4]],
+            columns=cols,
+            index=pd.date_range("2020-01-01", periods=1, freq="h"),
+        )
+        flat = _weights_to_tsam(w, df, ["variable", "region"])
+        assert flat[("solar", "north")] == 3.0
+        assert flat[("solar", "south")] == 1.5
+        assert flat[("wind", "north")] == 1.0
+        assert flat[("wind", "south")] == 2.0
+
+    def test_missing_coords_default_to_one(self):
+        """Coords not in weights get weight 1.0."""
+        from tsam_xarray._core import _weights_to_tsam
+
+        w = xr.DataArray(
+            [3.0],
+            dims=["variable"],
+            coords={"variable": ["solar"]},
+        )
+        df = pd.DataFrame(
+            {"solar": [1.0], "wind": [2.0]},
+            index=pd.date_range("2020-01-01", periods=1, freq="h"),
+        )
+        flat = _weights_to_tsam(w, df, ["variable"])
+        assert flat["solar"] == 3.0
+        assert flat["wind"] == 1.0
 
 
 class TestValidation:
