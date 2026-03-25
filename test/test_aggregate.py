@@ -494,3 +494,165 @@ class TestMultiIndexPassthrough:
         result = tsam.aggregate(df, n_clusters=4)
         assert isinstance(result.accuracy.rmse.index, pd.MultiIndex)
         assert isinstance(result.accuracy.mae.index, pd.MultiIndex)
+
+
+class TestSegmentation:
+    def test_segment_durations_shape(self):
+        """segment_durations has (cluster, timestep) dims."""
+        from tsam import SegmentConfig
+
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+            segments=SegmentConfig(n_segments=6),
+        )
+        assert result.segment_durations is not None
+        assert set(result.segment_durations.dims) == {
+            "cluster",
+            "timestep",
+        }
+        assert result.segment_durations.sizes["cluster"] == 4
+        assert result.segment_durations.sizes["timestep"] == 6
+
+    def test_segment_durations_sum_to_period(self):
+        """Each cluster's durations sum to timesteps per period."""
+        from tsam import SegmentConfig
+
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+            segments=SegmentConfig(n_segments=6),
+        )
+        assert result.segment_durations is not None
+        # Each cluster's durations should sum to 24 (hours per day)
+        for c in range(4):
+            total = int(result.segment_durations.sel(cluster=c).sum())
+            assert total == 24
+
+    def test_no_segmentation_returns_none(self):
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+        )
+        assert result.segment_durations is None
+
+    def test_typical_periods_with_segments(self):
+        """typical_periods timestep dim equals n_segments."""
+        from tsam import SegmentConfig
+
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+            segments=SegmentConfig(n_segments=6),
+        )
+        assert result.typical_periods.sizes["timestep"] == 6
+
+
+class TestDisaggregate:
+    def test_roundtrip_no_segments(self):
+        """disaggregate(typical_periods) matches reconstructed."""
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+        )
+        dis = result.disaggregate(result.typical_periods)
+        xr.testing.assert_allclose(dis, result.reconstructed)
+
+    def test_roundtrip_with_segments_ffill(self):
+        """disaggregate + ffill matches reconstructed (segmented)."""
+        from tsam import SegmentConfig
+
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+            segments=SegmentConfig(n_segments=6),
+        )
+        dis = result.disaggregate(result.typical_periods)
+        filled = dis.ffill(dim="time")
+        xr.testing.assert_allclose(filled, result.reconstructed)
+
+    def test_disaggregate_dims(self):
+        """disaggregate replaces cluster+timestep with time."""
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+        )
+        dis = result.disaggregate(result.typical_periods)
+        assert "time" in dis.dims
+        assert "cluster" not in dis.dims
+        assert "timestep" not in dis.dims
+        assert "variable" in dis.dims
+
+    def test_roundtrip_multi_dim(self):
+        """disaggregate works with auto-sliced dims."""
+        da = _make_da(scenarios=["low", "high"])
+        result = tsam_xarray.aggregate(
+            da,
+            time_dim="time",
+            cluster_dim=["variable", "region"],
+            n_clusters=4,
+        )
+        dis = result.disaggregate(result.typical_periods)
+        assert dis.dims == result.reconstructed.dims
+        np.testing.assert_allclose(dis.values, result.reconstructed.values)
+
+    def test_roundtrip_multi_dim_with_segments(self):
+        """disaggregate + ffill with sliced segmented data."""
+        from tsam import SegmentConfig
+
+        da = _make_da(scenarios=["low", "high"])
+        result = tsam_xarray.aggregate(
+            da,
+            time_dim="time",
+            cluster_dim=["variable", "region"],
+            n_clusters=4,
+            segments=SegmentConfig(n_segments=6),
+        )
+        dis = result.disaggregate(result.typical_periods)
+        filled = dis.ffill(dim="time")
+        assert filled.dims == result.reconstructed.dims
+        np.testing.assert_allclose(filled.values, result.reconstructed.values)
+
+    def test_disaggregate_segmented_has_nan(self):
+        """Segmented disaggregate has NaN at non-boundary timesteps."""
+        from tsam import SegmentConfig
+
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+            segments=SegmentConfig(n_segments=6),
+        )
+        dis = result.disaggregate(result.typical_periods)
+        assert bool(dis.isnull().any())
