@@ -548,4 +548,5 @@ def _concat_results(
         reconstructed=_field("reconstructed"),
         original=_field("original"),
         clustering=merged_clustering,
+        is_transferred=first.is_transferred,
     )
