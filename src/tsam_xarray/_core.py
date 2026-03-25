@@ -13,6 +13,8 @@ import xarray as xr
 
 from tsam_xarray._result import AccuracyMetrics, AggregationResult
 
+Weights = dict[str, float] | dict[str, dict[str, float]] | None
+
 
 def aggregate(
     da: xr.DataArray,
@@ -20,7 +22,7 @@ def aggregate(
     time_dim: str,
     cluster_dim: Sequence[str] | str,
     n_clusters: int,
-    weights: xr.DataArray | None = None,
+    weights: Weights = None,
     **tsam_kwargs: Any,
 ) -> AggregationResult:
     """Aggregate an xarray DataArray using tsam.
@@ -37,16 +39,20 @@ def aggregate(
         All remaining dims are sliced independently.
     n_clusters : int
         Number of typical periods.
-    weights : xr.DataArray | None
-        Per-coordinate weights as a DataArray. Dims must be a subset
-        of ``cluster_dim``. Broadcasts across missing dims (weight
-        1.0). Example for weighting solar higher::
+    weights : dict[str, float] | dict[str, dict[str, float]] | None
+        Per-coordinate weights for clustering. Missing entries default
+        to 1.0. Two formats:
 
-            weights = xr.DataArray(
-                [2.0, 1.0],
-                dims=["variable"],
-                coords={"variable": ["solar", "wind"]},
-            )
+        - **Simple dict** (single ``cluster_dim``)::
+
+              weights={"solar": 2.0, "wind": 1.0}
+
+        - **Dict-of-dicts** (multiple ``cluster_dim``)::
+
+              weights={"variable": {"solar": 2.0}, "region": {"north": 1.5}}
+
+          Weights are multiplied across dimensions, e.g. ``("solar", "north")``
+          gets weight ``2.0 * 1.5 = 3.0``.
 
     **tsam_kwargs
         Additional keyword arguments passed to ``tsam.aggregate()``.
@@ -56,12 +62,11 @@ def aggregate(
     slice_dims = _infer_slice_dims(da, time_dim, col_dims)
     _validate(da, time_dim, col_dims, slice_dims)
     _validate_no_cluster_config_weights(tsam_kwargs)
-    if weights is not None:
-        _validate_weights(weights, col_dims)
+    normalized = _normalize_weights(weights, da, col_dims)
 
     if not slice_dims:
         return _aggregate_single(
-            da, n_clusters, time_dim, col_dims, weights, tsam_kwargs
+            da, n_clusters, time_dim, col_dims, normalized, tsam_kwargs
         )
 
     slice_coords = {d: da.coords[d].values for d in slice_dims}
@@ -74,7 +79,7 @@ def aggregate(
         sel = dict(zip(slice_dims, key, strict=True))
         da_slice = da.sel(sel)
         r = _aggregate_single(
-            da_slice, n_clusters, time_dim, col_dims, weights, tsam_kwargs
+            da_slice, n_clusters, time_dim, col_dims, normalized, tsam_kwargs
         )
         results.append(r)
         raw_map[key] = r.raw
@@ -242,36 +247,77 @@ def _metric_to_da(
     return xr.DataArray(series.to_xarray())
 
 
-def _validate_weights(
-    weights: xr.DataArray,
+def _normalize_weights(
+    weights: dict[str, float] | dict[str, dict[str, float]] | None,
+    da: xr.DataArray,
     col_dims: list[str],
-) -> None:
-    """Validate that weight dims are a subset of cluster_dim."""
-    extra = set(weights.dims) - set(col_dims)
-    if extra:
-        msg = f"weights has dims {set(weights.dims)} not in cluster_dim {col_dims}"
+) -> dict[str, dict[str, float]] | None:
+    """Normalize weights to dict-of-dicts and validate dims/coords."""
+    if weights is None or not weights:
+        return None
+
+    first_val = next(iter(weights.values()))
+    if isinstance(first_val, dict):
+        # Dict-of-dicts — validate all values are dicts
+        for _key, val in weights.items():
+            if not isinstance(val, dict):
+                msg = (
+                    "Mixed weights format: all values must be dicts. "
+                    'Use {"dim": {"coord": weight}} for all entries.'
+                )
+                raise ValueError(msg)
+        normalized: dict[str, dict[str, float]] = weights  # type: ignore[assignment]
+    else:
+        # Simple dict — requires single cluster_dim
+        if len(col_dims) != 1:
+            msg = (
+                "Simple dict weights require a single cluster_dim. "
+                "For multiple cluster_dim, use dict-of-dicts: "
+                '{"dim_name": {"coord": weight}}.'
+            )
+            raise ValueError(msg)
+        normalized = {col_dims[0]: weights}  # type: ignore[dict-item]
+
+    # Validate dim names exist in cluster_dim
+    extra_dims = set(normalized.keys()) - set(col_dims)
+    if extra_dims:
+        msg = (
+            f"weights has unknown dims {extra_dims}, "
+            f"must be subset of cluster_dim {col_dims}"
+        )
         raise ValueError(msg)
 
+    # Validate coord values exist in the DataArray
+    for dim_name, coord_weights in normalized.items():
+        valid_coords = set(str(c) for c in da.coords[dim_name].values)
+        unknown = set(coord_weights.keys()) - valid_coords
+        if unknown:
+            msg = (
+                f"weights has unknown coords {unknown} for dim {dim_name!r}, "
+                f"valid coords: {sorted(valid_coords)}"
+            )
+            raise ValueError(msg)
 
-def _weights_to_tsam(
-    weights: xr.DataArray,
+    return normalized
+
+
+def _translate_weights(
+    weights: dict[str, dict[str, float]],
     df: pd.DataFrame,
     col_dims: list[str],
 ) -> dict[Hashable, float]:
-    """Convert DataArray weights to flat column weights for tsam."""
-    weight_dims = set(weights.dims)
+    """Translate per-dim weights to flat column weights for tsam."""
     flat: dict[Hashable, float] = {}
     for col in df.columns:
+        w = 1.0
         if isinstance(col, tuple):
-            full_sel = dict(zip(col_dims, col, strict=True))
+            for dim_name, coord_val in zip(col_dims, col, strict=True):
+                if dim_name in weights:
+                    w *= weights[dim_name].get(str(coord_val), 1.0)
         else:
-            full_sel = {col_dims[0]: col}
-        # Only select dims that exist in the weights DataArray
-        sel = {k: v for k, v in full_sel.items() if k in weight_dims}
-        try:
-            w = float(weights.sel(sel))
-        except KeyError:
-            w = 1.0
+            dim_name = col_dims[0]
+            if dim_name in weights:
+                w *= weights[dim_name].get(str(col), 1.0)
         flat[col] = w
     return flat
 
@@ -281,7 +327,7 @@ def _aggregate_single(
     n_clusters: int,
     time_dim: str,
     col_dims: list[str],
-    weights: xr.DataArray | None,
+    weights: dict[str, dict[str, float]] | None,
     tsam_kwargs: dict[str, Any],
 ) -> AggregationResult:
     """Run a single tsam aggregation on a DataArray."""
@@ -289,7 +335,7 @@ def _aggregate_single(
 
     tsam_weights: dict[Hashable, float] | None = None
     if weights is not None:
-        tsam_weights = _weights_to_tsam(weights, df, col_dims)
+        tsam_weights = _translate_weights(weights, df, col_dims)
 
     tsam_result = tsam.aggregate(
         df,
