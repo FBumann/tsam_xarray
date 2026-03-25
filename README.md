@@ -3,6 +3,7 @@
 [![PyPI](https://img.shields.io/pypi/v/tsam-xarray)](https://pypi.org/project/tsam-xarray/)
 [![Python](https://img.shields.io/pypi/pyversions/tsam-xarray)](https://pypi.org/project/tsam-xarray/)
 [![CI](https://github.com/FBumann/tsam_xarray/actions/workflows/ci.yaml/badge.svg)](https://github.com/FBumann/tsam_xarray/actions/workflows/ci.yaml)
+[![codecov](https://codecov.io/gh/FBumann/tsam_xarray/graph/badge.svg)](https://codecov.io/gh/FBumann/tsam_xarray)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Docs](https://img.shields.io/badge/docs-readthedocs-blue)](https://tsam_xarray.readthedocs.io/)
 
