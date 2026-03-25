@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Hashable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,7 @@ from tsam import ClusteringResult
 from tsam_xarray._core import (
     _concat_results,
     _infer_slice_dims,
+    _resolve_cluster_dim,
 )
 
 
@@ -32,6 +34,9 @@ class ClusteringInfo:
     def apply(
         self,
         da: xr.DataArray,
+        *,
+        time_dim: str | None = None,
+        cluster_dim: Sequence[str] | str | None = None,
         **tsam_kwargs: Any,
     ) -> Any:
         """Apply this clustering to new data.
@@ -39,7 +44,13 @@ class ClusteringInfo:
         Parameters
         ----------
         da : xr.DataArray
-            New data with the same dimensions as the original.
+            New data with compatible time dimension length.
+        time_dim : str | None
+            Time dimension name. Defaults to the stored value.
+        cluster_dim : Sequence[str] | str | None
+            Cluster dimension(s). Defaults to the stored value.
+            Can differ from the original if the new data has
+            different dimension names.
         **tsam_kwargs
             Additional keyword arguments passed to
             ``ClusteringResult.apply()``.
@@ -51,15 +62,22 @@ class ClusteringInfo:
         """
         from tsam_xarray._result import AggregationResult
 
-        col_dims = self.cluster_dim
-        slice_dims = _infer_slice_dims(da, self.time_dim, col_dims)
+        td = time_dim if time_dim is not None else self.time_dim
+        cd = (
+            _resolve_cluster_dim(cluster_dim)
+            if cluster_dim is not None
+            else self.cluster_dim
+        )
+
+        _validate_apply(da, td, cd, self.clusterings)
+
+        slice_dims = _infer_slice_dims(da, td, cd)
 
         if not slice_dims:
             cr = self.clusterings[()]
-            return _apply_single(da, cr, self.time_dim, col_dims, tsam_kwargs)
+            return _apply_single(da, cr, td, cd, tsam_kwargs)
 
         import itertools
-        from collections.abc import Hashable
 
         slice_coords: dict[str, Any] = {d: da.coords[d].values for d in slice_dims}
         slice_keys = list(itertools.product(*(slice_coords[d] for d in slice_dims)))
@@ -70,10 +88,9 @@ class ClusteringInfo:
         for key in slice_keys:
             sel = dict(zip(slice_dims, key, strict=True))
             da_slice = da.sel(sel)
-            # Match the slice key to stored clustering
             str_key = tuple(str(k) for k in key)
             cr = self.clusterings[str_key]
-            r = _apply_single(da_slice, cr, self.time_dim, col_dims, tsam_kwargs)
+            r = _apply_single(da_slice, cr, td, cd, tsam_kwargs)
             results.append(r)
             raw_map[key] = r.raw
 
@@ -127,6 +144,51 @@ class ClusteringInfo:
         )
 
 
+def _validate_apply(
+    da: xr.DataArray,
+    time_dim: str,
+    col_dims: list[str],
+    clusterings: dict[tuple[str, ...], ClusteringResult],
+) -> None:
+    """Validate data is compatible with stored clustering."""
+    # time_dim must exist
+    if time_dim not in da.dims:
+        msg = f"time_dim {time_dim!r} not in DataArray dims {set(da.dims)}"
+        raise ValueError(msg)
+
+    # cluster_dim must exist
+    for d in col_dims:
+        if d not in da.dims:
+            msg = f"cluster_dim {d!r} not in DataArray dims {set(da.dims)}"
+            raise ValueError(msg)
+
+    # Slice dims must match stored clustering keys
+    slice_dims = _infer_slice_dims(da, time_dim, col_dims)
+    if slice_dims:
+        import itertools
+
+        slice_coords = {d: da.coords[d].values for d in slice_dims}
+        data_keys = {
+            tuple(str(k) for k in key)
+            for key in itertools.product(*(slice_coords[d] for d in slice_dims))
+        }
+        stored_keys = set(clusterings.keys())
+        missing = data_keys - stored_keys
+        if missing:
+            msg = (
+                f"No stored clustering for slice coordinates: "
+                f"{missing}. Stored keys: {stored_keys}"
+            )
+            raise ValueError(msg)
+    elif () not in clusterings:
+        msg = (
+            "Data has no slice dims but clustering was "
+            "created with slicing. Provide data with matching "
+            "slice dimensions."
+        )
+        raise ValueError(msg)
+
+
 def _apply_single(
     da: xr.DataArray,
     cr: ClusteringResult,
@@ -135,12 +197,6 @@ def _apply_single(
     tsam_kwargs: dict[str, Any],
 ) -> Any:
     """Apply a single ClusteringResult to a DataArray."""
-    from tsam_xarray._core import _to_dataframe
-
-    df = _to_dataframe(da, time_dim, col_dims)
-    tsam_result = cr.apply(df, **tsam_kwargs)
-
-    # Reuse _aggregate_single's result building but with existing tsam_result
     import numpy as np
     import pandas as pd
 
@@ -149,8 +205,12 @@ def _apply_single(
         _reconstructed_to_da,
         _representatives_to_da,
         _segment_durations_to_da,
+        _to_dataframe,
     )
     from tsam_xarray._result import AccuracyMetrics, AggregationResult
+
+    df = _to_dataframe(da, time_dim, col_dims)
+    tsam_result = cr.apply(df, **tsam_kwargs)
 
     typical = _representatives_to_da(tsam_result.cluster_representatives, col_dims)
     reconstructed = _reconstructed_to_da(tsam_result.reconstructed, time_dim, col_dims)
@@ -188,4 +248,6 @@ def _apply_single(
         reconstructed=reconstructed,
         original=da,
         raw=tsam_result,
+        _time_dim=time_dim,
+        _cluster_dim=col_dims,
     )
