@@ -49,10 +49,7 @@ nav:
     - Changelog: changelog.md
   - Examples:
     - Getting Started: examples/getting-started.ipynb
-    - Stack Dims: examples/stack-dims.ipynb
-    - Slice Dims: examples/slice-dims.ipynb
-    - Weights: examples/weights.ipynb
-    - Accuracy: examples/accuracy.ipynb
+    - Multi-Dimensional Data: examples/multi-dim.ipynb
   - API Reference: api/
 
 exclude_docs: |
