@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import xarray as xr
+
+if TYPE_CHECKING:
+    from tsam_xarray._clustering import ClusteringInfo
 
 
 @dataclass(frozen=True)
@@ -30,6 +33,8 @@ class AggregationResult:
     reconstructed: xr.DataArray
     original: xr.DataArray
     raw: Any  # tsam.AggregationResult or dict of them
+    _time_dim: str = "time"
+    _cluster_dim: list[str] | None = None
 
     @property
     def n_clusters(self) -> int:
@@ -72,6 +77,41 @@ class AggregationResult:
     def residuals(self) -> xr.DataArray:
         """Difference between original and reconstructed data."""
         return self.original - self.reconstructed
+
+    @property
+    def clustering(self) -> ClusteringInfo:
+        """Reusable clustering for ``apply()`` and IO.
+
+        Returns
+        -------
+        ClusteringInfo
+            Contains the tsam ClusteringResult(s) and dim metadata.
+        """
+        from tsam_xarray._clustering import ClusteringInfo
+
+        col_dims = self._cluster_dim or []
+        clusterings: dict[tuple[str, ...], Any] = {}
+        if isinstance(self.raw, dict):
+            for key, tsam_result in self.raw.items():
+                str_key = tuple(str(k) for k in key)
+                clusterings[str_key] = tsam_result.clustering
+        else:
+            clusterings[()] = self.raw.clustering
+        return ClusteringInfo(
+            time_dim=self._time_dim,
+            cluster_dim=col_dims,
+            clusterings=clusterings,
+        )
+
+    def save_clustering(self, path: str) -> None:
+        """Save clustering to JSON for later ``apply()``.
+
+        Parameters
+        ----------
+        path : str
+            Output file path.
+        """
+        self.clustering.to_json(path)
 
     def disaggregate(self, data: xr.DataArray) -> xr.DataArray:
         """Map data on ``(cluster, timestep)`` back to original time.

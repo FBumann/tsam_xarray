@@ -450,6 +450,8 @@ def _aggregate_single(
         reconstructed=reconstructed,
         original=da,
         raw=tsam_result,
+        _time_dim=time_dim,
+        _cluster_dim=col_dims,
     )
 
 
@@ -511,6 +513,8 @@ def _concat_results(
         arrays = [getattr(r.accuracy, field_name) for r in results]
         return _concat_along_dims(arrays, slice_dims, slice_coords)
 
+    # Grab dim metadata from the first result
+    first = results[0]
     return AggregationResult(
         typical_periods=_field("typical_periods"),
         cluster_assignments=_field("cluster_assignments"),
@@ -524,4 +528,6 @@ def _concat_results(
         reconstructed=_field("reconstructed"),
         original=_field("original"),
         raw=raw_map,
+        _time_dim=first._time_dim,
+        _cluster_dim=first._cluster_dim,
     )
