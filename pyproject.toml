@@ -9,6 +9,14 @@ description = "Lightweight xarray wrapper for tsam time series aggregation"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
 dependencies = [
     "bottleneck>=1.4",
     "tsam>=3.2.0",
