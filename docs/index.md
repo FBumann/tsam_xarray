@@ -6,7 +6,7 @@ tsam_xarray lets you aggregate multi-dimensional xarray DataArrays using [tsam](
 
 - **DataFrame conversion** — stack/unstack dimensions automatically
 - **Independent slicing** — aggregate per scenario, year, region, etc. in one call
-- **Result assembly** — typical periods, accuracy metrics, cluster weights, and segment durations are concatenated into coherent multi-dimensional xarray objects
+- **Result assembly** — cluster representatives, accuracy metrics, cluster weights, and segment durations are concatenated into coherent multi-dimensional xarray objects
 
 ## Quick example
 
@@ -20,7 +20,7 @@ result = tsam_xarray.aggregate(
     n_clusters=8,
 )
 
-result.typical_periods   # (cluster, timestep, variable, region)
+result.cluster_representatives   # (cluster, timestep, variable, region)
 result.cluster_weights   # (cluster,)
 result.accuracy.rmse     # (variable, region)
 result.reconstructed     # same shape as input

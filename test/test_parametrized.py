@@ -24,9 +24,9 @@ def _aggregate(case: AggregateCase, **kwargs):  # type: ignore[no-untyped-def]
 class TestDimsAndShapes:
     """Output dimensions match expectations."""
 
-    def test_typical_periods_dims(self, agg_case: AggregateCase):
+    def test_cluster_representatives_dims(self, agg_case: AggregateCase):
         result = _aggregate(agg_case)
-        dims = set(result.typical_periods.dims)
+        dims = set(result.cluster_representatives.dims)
         expected = (
             {"cluster", "timestep"}
             | agg_case.expected_cluster_dims
@@ -155,11 +155,11 @@ class TestSliceIndependence:
 
 
 class TestDisaggregateRoundtrip:
-    """disaggregate(typical_periods) == reconstructed."""
+    """disaggregate(cluster_representatives) == reconstructed."""
 
     def test_roundtrip(self, agg_case: AggregateCase):
         result = _aggregate(agg_case)
-        dis = result.disaggregate(result.typical_periods)
+        dis = result.disaggregate(result.cluster_representatives)
         np.testing.assert_allclose(dis.values, result.reconstructed.values, rtol=1e-10)
 
 
@@ -181,7 +181,7 @@ class TestSegmentationMatrix:
 
     def test_segmented_disaggregate_ffill(self, agg_case: AggregateCase):
         result = _aggregate(agg_case, segments=SegmentConfig(n_segments=6))
-        dis = result.disaggregate(result.typical_periods)
+        dis = result.disaggregate(result.cluster_representatives)
         filled = dis.ffill(dim=agg_case.time_dim)
         np.testing.assert_allclose(
             filled.values, result.reconstructed.values, rtol=1e-10
@@ -189,7 +189,7 @@ class TestSegmentationMatrix:
 
     def test_segmented_has_nan_before_fill(self, agg_case: AggregateCase):
         result = _aggregate(agg_case, segments=SegmentConfig(n_segments=6))
-        dis = result.disaggregate(result.typical_periods)
+        dis = result.disaggregate(result.cluster_representatives)
         assert bool(dis.isnull().any())
 
 
@@ -209,7 +209,7 @@ class TestClusteringIORoundtrip:
             new_result.cluster_assignments.values,
         )
 
-    def test_typical_periods_preserved(
+    def test_cluster_representatives_preserved(
         self, agg_case: AggregateCase, tmp_path: pytest.TempPathFactory
     ):
         result = _aggregate(agg_case)
@@ -218,8 +218,8 @@ class TestClusteringIORoundtrip:
         clustering = tsam_xarray.load_clustering(str(path))
         new_result = clustering.apply(agg_case.da)
         np.testing.assert_allclose(
-            result.typical_periods.values,
-            new_result.typical_periods.values,
+            result.cluster_representatives.values,
+            new_result.cluster_representatives.values,
             rtol=1e-10,
         )
 
