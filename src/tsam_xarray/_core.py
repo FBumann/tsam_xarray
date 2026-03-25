@@ -37,6 +37,7 @@ def aggregate(
         Dimension(s) to cluster together. Multiple dims are stacked
         internally into a MultiIndex and unstacked in results.
         All remaining dims are sliced independently.
+        Empty ``()`` for 1D time series with no column dimension.
     n_clusters : int
         Number of typical periods.
     weights : dict[str, float] | dict[str, dict[str, float]] | None
