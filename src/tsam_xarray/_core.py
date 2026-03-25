@@ -218,11 +218,7 @@ def _validate_consistent_cluster_counts(
     results: list[AggregationResult],
     slice_keys: list[tuple[Any, ...]],
 ) -> None:
-    """Validate all slices produced the same number of clusters.
-
-    TODO(#43): Consider padding with NaN instead of raising, so
-    extremes="append" works across slices with different peak counts.
-    """
+    """Validate all slices produced the same number of clusters."""
     counts = {k: r.n_clusters for k, r in zip(slice_keys, results, strict=True)}
     unique = set(counts.values())
     if len(unique) > 1:
@@ -230,7 +226,10 @@ def _validate_consistent_cluster_counts(
             "Slices produced different cluster counts: "
             f"{counts}. This can happen with "
             "ExtremeConfig(method='append'). Use "
-            "method='replace' or aggregate slices separately."
+            "method='replace', aggregate slices separately, "
+            "or open an issue at "
+            "github.com/FBumann/tsam_xarray/issues "
+            "to discuss expected behaviour."
         )
         raise ValueError(msg)
 
