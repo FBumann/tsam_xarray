@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import numpy as np
 import xarray as xr
@@ -82,16 +82,14 @@ class AggregationResult:
             Data with ``cluster`` and ``timestep`` replaced by the
             original ``time`` dimension.
         """
-        slice_dims = [
-            str(d)
-            for d in data.dims
-            if d not in ("cluster", "timestep") and d in self.cluster_assignments.dims
-        ]
-
+        # Use stored slice_dims for canonical ordering
+        slice_dims = self.clustering.slice_dims
         if not slice_dims:
             return self._disaggregate_single(data)
 
         import itertools
+
+        from tsam_xarray._core import _concat_along_dims
 
         slice_coords = {d: data.coords[d].values for d in slice_dims}
         keys = list(itertools.product(*(slice_coords[d] for d in slice_dims)))
@@ -102,32 +100,7 @@ class AggregationResult:
             result_slice = self._make_slice_view(sel)
             results.append(result_slice._disaggregate_single(data_slice))
 
-        import pandas as pd
-
-        if len(slice_dims) == 1:
-            return xr.concat(
-                results,
-                dim=pd.Index(
-                    slice_coords[slice_dims[0]],
-                    name=slice_dims[0],
-                ),
-            )
-
-        it = iter(results)
-
-        def _nest(dims: list[str]) -> list:  # type: ignore[type-arg]
-            if len(dims) == 1:
-                return [next(it) for _ in slice_coords[dims[0]]]
-            return [_nest(dims[1:]) for _ in slice_coords[dims[0]]]
-
-        nested: Any = _nest(slice_dims)
-        for dim in reversed(slice_dims):
-            idx = pd.Index(slice_coords[dim], name=dim)
-            if isinstance(nested[0], list):
-                nested = [xr.concat(group, dim=idx) for group in nested]
-            else:
-                nested = xr.concat(nested, dim=idx)
-        return nested  # type: ignore[no-any-return]
+        return _concat_along_dims(results, slice_dims, slice_coords)
 
     def _make_slice_view(self, sel: dict[str, object]) -> AggregationResult:
         """Create a view of this result for a single slice."""
@@ -136,7 +109,8 @@ class AggregationResult:
             _lookup_clustering,
         )
 
-        key = tuple(sel.values())
+        # Build key in stored slice_dims order
+        key = tuple(sel[d] for d in self.clustering.slice_dims)
         cr = _lookup_clustering(self.clustering.clusterings, key)
 
         return AggregationResult(

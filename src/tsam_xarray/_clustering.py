@@ -13,7 +13,6 @@ from tsam import ClusteringResult
 
 from tsam_xarray._core import (
     _concat_results,
-    _infer_slice_dims,
     _resolve_cluster_dim,
 )
 
@@ -70,9 +69,10 @@ class ClusteringInfo:
             else self.cluster_dim
         )
 
-        _validate_apply(da, td, cd, self.clusterings)
+        _validate_apply(da, td, cd, self.slice_dims, self.clusterings)
 
-        slice_dims = _infer_slice_dims(da, td, cd)
+        # Use stored slice_dims for canonical ordering
+        slice_dims = self.slice_dims
 
         if not slice_dims:
             cr = self.clusterings[()]
@@ -173,6 +173,7 @@ def _validate_apply(
     da: xr.DataArray,
     time_dim: str,
     col_dims: list[str],
+    stored_slice_dims: list[str],
     clusterings: dict[tuple[Hashable, ...], ClusteringResult],
 ) -> None:
     """Validate data is compatible with stored clustering."""
@@ -185,12 +186,11 @@ def _validate_apply(
             msg = f"cluster_dim {d!r} not in DataArray dims {set(da.dims)}"
             raise ValueError(msg)
 
-    slice_dims = _infer_slice_dims(da, time_dim, col_dims)
-    if slice_dims:
+    if stored_slice_dims:
         import itertools
 
-        slice_coords = {d: da.coords[d].values for d in slice_dims}
-        for key in itertools.product(*(slice_coords[d] for d in slice_dims)):
+        slice_coords = {d: da.coords[d].values for d in stored_slice_dims}
+        for key in itertools.product(*(slice_coords[d] for d in stored_slice_dims)):
             try:
                 _lookup_clustering(clusterings, key)
             except KeyError:
