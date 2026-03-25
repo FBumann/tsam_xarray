@@ -238,7 +238,7 @@ class TestValidation:
 
         da = _make_da()
         da_flat = da.isel(region=0).drop_vars("region")
-        with pytest.raises(ValueError, match="ClusterConfig.weights"):
+        with pytest.raises(ValueError, match=r"ClusterConfig\.weights"):
             tsam_xarray.aggregate(
                 da_flat,
                 n_clusters=4,
