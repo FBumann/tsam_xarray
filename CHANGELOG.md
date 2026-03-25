@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.4-alpha.0](https://github.com/FBumann/tsam_xarray/compare/v0.0.3-alpha.0...v0.0.4-alpha.0) (2026-03-25)
+
+
+### Features
+
+* validate consistent cluster counts across slices ([#44](https://github.com/FBumann/tsam_xarray/issues/44)) ([0b98ea2](https://github.com/FBumann/tsam_xarray/commit/0b98ea2c3cc3e9cfcc9b9cc23be8e0eb1a5464c8))
+
 ## [0.0.3-alpha.0](https://github.com/FBumann/tsam_xarray/compare/v0.0.2-alpha.0...v0.0.3-alpha.0) (2026-03-25)
 
 
