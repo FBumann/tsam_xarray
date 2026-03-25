@@ -1199,3 +1199,33 @@ class TestClusteringIO:
         new_result = clustering.apply(da_flat)
         dis = new_result.disaggregate(new_result.typical_periods)
         xr.testing.assert_allclose(dis, new_result.reconstructed)
+
+
+class TestSliceEdgeCases:
+    def test_cluster_count_mismatch_raises(self):
+        """Mismatched cluster counts across slices raise ValueError."""
+        from unittest.mock import MagicMock
+
+        from tsam_xarray._core import _validate_consistent_cluster_counts
+
+        # Simulate two results with different cluster counts
+        r1 = MagicMock()
+        r1.n_clusters = 4
+        r2 = MagicMock()
+        r2.n_clusters = 5  # different due to extremes
+        with pytest.raises(ValueError, match="different cluster counts"):
+            _validate_consistent_cluster_counts([r1, r2], [("low",), ("high",)])
+
+    def test_cluster_count_consistent_passes(self):
+        """Same cluster counts across slices passes validation."""
+        from unittest.mock import MagicMock
+
+        from tsam_xarray._core import _validate_consistent_cluster_counts
+
+        r1 = MagicMock()
+        r1.n_clusters = 4
+        r2 = MagicMock()
+        r2.n_clusters = 4
+        _validate_consistent_cluster_counts(
+            [r1, r2], [("low",), ("high",)]
+        )  # should not raise
