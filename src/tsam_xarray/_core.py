@@ -62,11 +62,11 @@ def aggregate(
     slice_dims = _infer_slice_dims(da, time_dim, col_dims)
     _validate(da, time_dim, col_dims, slice_dims)
     _validate_no_cluster_config_weights(tsam_kwargs)
-    normalized = _normalize_weights(weights, da, col_dims)
+    per_dim_weights = _normalize_weights(weights, da, col_dims)
 
     if not slice_dims:
         return _aggregate_single(
-            da, n_clusters, time_dim, col_dims, normalized, tsam_kwargs
+            da, n_clusters, time_dim, col_dims, per_dim_weights, tsam_kwargs
         )
 
     slice_coords = {d: da.coords[d].values for d in slice_dims}
@@ -79,7 +79,7 @@ def aggregate(
         sel = dict(zip(slice_dims, key, strict=True))
         da_slice = da.sel(sel)
         r = _aggregate_single(
-            da_slice, n_clusters, time_dim, col_dims, normalized, tsam_kwargs
+            da_slice, n_clusters, time_dim, col_dims, per_dim_weights, tsam_kwargs
         )
         results.append(r)
         raw_map[key] = r.raw
@@ -266,7 +266,7 @@ def _normalize_weights(
                     'Use {"dim": {"coord": weight}} for all entries.'
                 )
                 raise ValueError(msg)
-        normalized: dict[str, dict[str, float]] = weights  # type: ignore[assignment]
+        per_dim_weights: dict[str, dict[str, float]] = weights  # type: ignore[assignment]
     else:
         # Simple dict — requires single cluster_dim
         if len(col_dims) != 1:
@@ -276,10 +276,10 @@ def _normalize_weights(
                 '{"dim_name": {"coord": weight}}.'
             )
             raise ValueError(msg)
-        normalized = {col_dims[0]: weights}  # type: ignore[dict-item]
+        per_dim_weights = {col_dims[0]: weights}  # type: ignore[dict-item]
 
     # Validate dim names exist in cluster_dim
-    extra_dims = set(normalized.keys()) - set(col_dims)
+    extra_dims = set(per_dim_weights.keys()) - set(col_dims)
     if extra_dims:
         msg = (
             f"weights has unknown dims {extra_dims}, "
@@ -288,7 +288,7 @@ def _normalize_weights(
         raise ValueError(msg)
 
     # Validate coord values exist in the DataArray
-    for dim_name, coord_weights in normalized.items():
+    for dim_name, coord_weights in per_dim_weights.items():
         valid_coords = set(str(c) for c in da.coords[dim_name].values)
         unknown = set(coord_weights.keys()) - valid_coords
         if unknown:
@@ -298,7 +298,7 @@ def _normalize_weights(
             )
             raise ValueError(msg)
 
-    return normalized
+    return per_dim_weights
 
 
 def _translate_weights(
