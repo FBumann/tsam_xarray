@@ -74,7 +74,6 @@ def aggregate(
     slice_keys = list(itertools.product(*(slice_coords[d] for d in slice_dims)))
 
     results: list[AggregationResult] = []
-    raw_map: dict[tuple[Hashable, ...], Any] = {}
 
     for key in slice_keys:
         sel = dict(zip(slice_dims, key, strict=True))
@@ -83,9 +82,8 @@ def aggregate(
             da_slice, n_clusters, time_dim, col_dims, per_dim_weights, tsam_kwargs
         )
         results.append(r)
-        raw_map[key] = r.raw
 
-    return _concat_results(results, slice_dims, slice_coords, raw_map)
+    return _concat_results(results, slice_dims, slice_coords, slice_keys)
 
 
 def _resolve_cluster_dim(
@@ -441,6 +439,15 @@ def _aggregate_single(
 
     seg_durations = _segment_durations_to_da(tsam_result.segment_durations)
 
+    from tsam_xarray._clustering import ClusteringInfo
+
+    clustering_info = ClusteringInfo(
+        time_dim=time_dim,
+        cluster_dim=col_dims,
+        slice_dims=[],
+        clusterings={(): tsam_result.clustering},
+    )
+
     return AggregationResult(
         typical_periods=typical,
         cluster_assignments=assignments_da,
@@ -449,7 +456,7 @@ def _aggregate_single(
         accuracy=accuracy,
         reconstructed=reconstructed,
         original=da,
-        raw=tsam_result,
+        clustering=clustering_info,
     )
 
 
@@ -493,7 +500,7 @@ def _concat_results(
     results: list[AggregationResult],
     slice_dims: list[str],
     slice_coords: dict[str, Any],
-    raw_map: dict[tuple[Hashable, ...], Any],
+    slice_keys: list[tuple[Any, ...]],
 ) -> AggregationResult:
     """Concatenate per-slice results along slice dims."""
 
@@ -511,6 +518,22 @@ def _concat_results(
         arrays = [getattr(r.accuracy, field_name) for r in results]
         return _concat_along_dims(arrays, slice_dims, slice_coords)
 
+    # Merge per-slice ClusteringInfos into one
+    from tsam_xarray._clustering import ClusteringInfo, _native_key
+
+    first = results[0]
+    merged_clusterings: dict[tuple[Hashable, ...], Any] = {}
+    for r, key in zip(results, slice_keys, strict=True):
+        for cr in r.clustering.clusterings.values():
+            merged_clusterings[_native_key(key)] = cr
+
+    merged_clustering = ClusteringInfo(
+        time_dim=first.clustering.time_dim,
+        cluster_dim=first.clustering.cluster_dim,
+        slice_dims=slice_dims,
+        clusterings=merged_clusterings,
+    )
+
     return AggregationResult(
         typical_periods=_field("typical_periods"),
         cluster_assignments=_field("cluster_assignments"),
@@ -523,5 +546,5 @@ def _concat_results(
         ),
         reconstructed=_field("reconstructed"),
         original=_field("original"),
-        raw=raw_map,
+        clustering=merged_clustering,
     )

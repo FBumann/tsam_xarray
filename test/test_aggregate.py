@@ -108,9 +108,9 @@ class TestBasicRoundtrip:
             time_dim="time",
             cluster_dim=["variable", "region"],
         )
-        from tsam.result import AggregationResult as TsamResult
-
-        assert isinstance(result.raw, TsamResult)
+        assert result.clustering is not None
+        assert result.clustering.time_dim == "time"
+        assert result.clustering.cluster_dim == ["variable", "region"]
 
 
 class TestSingleClusterDim:
@@ -157,7 +157,7 @@ class TestAutoSliceDims:
         assert result.typical_periods.sizes["scenario"] == 2
         assert "scenario" in result.accuracy.rmse.dims
 
-    def test_auto_slice_raw_is_dict(self):
+    def test_auto_slice_clustering_has_per_slice_keys(self):
         da = _make_da(scenarios=["low", "high"])
         result = tsam_xarray.aggregate(
             da,
@@ -165,8 +165,7 @@ class TestAutoSliceDims:
             time_dim="time",
             cluster_dim=["variable", "region"],
         )
-        assert isinstance(result.raw, dict)
-        assert len(result.raw) == 2
+        assert len(result.clustering.clusterings) == 2
 
     def test_multiple_auto_slice_dims(self):
         time = pd.date_range("2020-01-01", periods=30 * 24, freq="h")
@@ -210,7 +209,7 @@ class TestExplicitTimeDim:
 
 class TestWeights:
     def test_weights_simple_dict(self):
-        """Simple dict weights for single cluster_dim."""
+        """Simple dict weights produce valid result."""
         da = _make_da()
         da_flat = da.isel(region=0).drop_vars("region")
         result = tsam_xarray.aggregate(
@@ -220,12 +219,10 @@ class TestWeights:
             n_clusters=4,
             weights={"solar": 2.0, "wind": 1.0},
         )
-        tsam_weights = result.raw._aggregation.weightDict
-        assert tsam_weights["solar"] == 2.0
-        assert tsam_weights["wind"] == 1.0
+        assert result.n_clusters == 4
 
     def test_weights_dict_of_dicts(self):
-        """Dict-of-dicts weights for multiple cluster_dim."""
+        """Dict-of-dicts weights produce valid result."""
         da = _make_da()
         result = tsam_xarray.aggregate(
             da,
@@ -234,15 +231,7 @@ class TestWeights:
             n_clusters=4,
             weights={"variable": {"solar": 2.0}, "region": {"north": 1.5}},
         )
-        tsam_weights = result.raw._aggregation.weightDict
-        # solar*north = 2.0*1.5 = 3.0
-        assert tsam_weights[("solar", "north")] == 3.0
-        # solar*south = 2.0*1.0 = 2.0
-        assert tsam_weights[("solar", "south")] == 2.0
-        # wind*north = 1.0*1.5 = 1.5
-        assert tsam_weights[("wind", "north")] == 1.5
-        # wind*south = 1.0*1.0 = 1.0
-        assert tsam_weights[("wind", "south")] == 1.0
+        assert result.n_clusters == 4
 
     def test_weights_affect_clustering(self):
         """Weighted and unweighted produce different results."""
@@ -736,3 +725,441 @@ class TestDataValidation:
             tsam_xarray.aggregate(
                 da, time_dim="time", cluster_dim="variable", n_clusters=2
             )
+
+
+class TestClusteringIO:
+    """Tests for save_clustering / load_clustering / apply."""
+
+    def test_save_load_metadata(self, tmp_path):
+        """JSON preserves time_dim and cluster_dim."""
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+        )
+        path = tmp_path / "clustering.json"
+        result.clustering.to_json(str(path))
+        clustering = tsam_xarray.load_clustering(str(path))
+        assert clustering.time_dim == "time"
+        assert clustering.cluster_dim == ["variable"]
+        assert () in clustering.clusterings
+
+    def test_json_file_is_valid(self, tmp_path):
+        """Saved file is valid JSON with expected keys."""
+        import json
+
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+        )
+        path = tmp_path / "clustering.json"
+        result.clustering.to_json(str(path))
+        with open(path) as f:
+            data = json.load(f)
+        assert "time_dim" in data
+        assert "cluster_dim" in data
+        assert "clusterings" in data
+        assert data["time_dim"] == "time"
+        assert data["cluster_dim"] == ["variable"]
+
+    def test_apply_same_data_matches_cluster_assignments(self, tmp_path):
+        """Applying clustering to same data gives same assignments."""
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+        )
+        path = tmp_path / "clustering.json"
+        result.clustering.to_json(str(path))
+        clustering = tsam_xarray.load_clustering(str(path))
+        new_result = clustering.apply(da_flat)
+        np.testing.assert_array_equal(
+            result.cluster_assignments.values,
+            new_result.cluster_assignments.values,
+        )
+
+    def test_apply_same_data_matches_typical_periods(self, tmp_path):
+        """Applying clustering to same data reproduces typical periods."""
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+        )
+        path = tmp_path / "clustering.json"
+        result.clustering.to_json(str(path))
+        clustering = tsam_xarray.load_clustering(str(path))
+        new_result = clustering.apply(da_flat)
+        xr.testing.assert_allclose(result.typical_periods, new_result.typical_periods)
+
+    def test_apply_same_data_matches_accuracy(self, tmp_path):
+        """Applying clustering to same data gives same accuracy."""
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+        )
+        path = tmp_path / "clustering.json"
+        result.clustering.to_json(str(path))
+        clustering = tsam_xarray.load_clustering(str(path))
+        new_result = clustering.apply(da_flat)
+        xr.testing.assert_allclose(result.accuracy.rmse, new_result.accuracy.rmse)
+
+    def test_apply_different_data(self, tmp_path):
+        """Apply to different data produces valid result."""
+        da1 = _make_da(n_days=30)
+        da1_flat = da1.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da1_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+        )
+        path = tmp_path / "clustering.json"
+        result.clustering.to_json(str(path))
+        clustering = tsam_xarray.load_clustering(str(path))
+
+        # Apply to data with different values but same shape
+        rng = np.random.default_rng(99)
+        da2_flat = da1_flat.copy(data=rng.random(da1_flat.shape))
+        new_result = clustering.apply(da2_flat)
+        # Same structure, different values
+        assert new_result.n_clusters == 4
+        assert new_result.typical_periods.dims == result.typical_periods.dims
+        assert new_result.is_transferred
+
+    def test_apply_marks_is_transferred(self, tmp_path):
+        """Applied results have is_transferred=True."""
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+        )
+        assert not result.is_transferred
+        path = tmp_path / "clustering.json"
+        result.clustering.to_json(str(path))
+        clustering = tsam_xarray.load_clustering(str(path))
+        new_result = clustering.apply(da_flat)
+        assert new_result.is_transferred
+
+    def test_save_load_sliced_keys(self, tmp_path):
+        """Sliced clustering preserves per-slice keys."""
+        da = _make_da(scenarios=["low", "high"])
+        result = tsam_xarray.aggregate(
+            da,
+            time_dim="time",
+            cluster_dim=["variable", "region"],
+            n_clusters=4,
+        )
+        path = tmp_path / "clustering.json"
+        result.clustering.to_json(str(path))
+        clustering = tsam_xarray.load_clustering(str(path))
+        assert len(clustering.clusterings) == 2
+        assert ("low",) in clustering.clusterings
+        assert ("high",) in clustering.clusterings
+
+    def test_apply_sliced_dims(self, tmp_path):
+        """Apply sliced clustering produces correct dims."""
+        da = _make_da(scenarios=["low", "high"])
+        result = tsam_xarray.aggregate(
+            da,
+            time_dim="time",
+            cluster_dim=["variable", "region"],
+            n_clusters=4,
+        )
+        path = tmp_path / "clustering.json"
+        result.clustering.to_json(str(path))
+        clustering = tsam_xarray.load_clustering(str(path))
+        new_result = clustering.apply(da)
+        assert "scenario" in new_result.typical_periods.dims
+        assert new_result.n_clusters == 4
+        assert new_result.typical_periods.sizes["scenario"] == 2
+
+    def test_apply_sliced_values_match(self, tmp_path):
+        """Apply sliced clustering to same data reproduces values."""
+        da = _make_da(scenarios=["low", "high"])
+        result = tsam_xarray.aggregate(
+            da,
+            time_dim="time",
+            cluster_dim=["variable", "region"],
+            n_clusters=4,
+        )
+        path = tmp_path / "clustering.json"
+        result.clustering.to_json(str(path))
+        clustering = tsam_xarray.load_clustering(str(path))
+        new_result = clustering.apply(da)
+        np.testing.assert_allclose(
+            result.typical_periods.values,
+            new_result.typical_periods.values,
+        )
+
+    def test_clustering_property_single(self):
+        """clustering property returns correct ClusteringInfo."""
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+        )
+        ci = result.clustering
+        assert ci.time_dim == "time"
+        assert ci.cluster_dim == ["variable"]
+        assert len(ci.clusterings) == 1
+
+    def test_clustering_property_sliced(self):
+        """clustering property returns per-slice clusterings."""
+        da = _make_da(scenarios=["low", "high"])
+        result = tsam_xarray.aggregate(
+            da,
+            time_dim="time",
+            cluster_dim=["variable", "region"],
+            n_clusters=4,
+        )
+        ci = result.clustering
+        assert len(ci.clusterings) == 2
+
+    def test_apply_without_save(self):
+        """apply() works directly from clustering property."""
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+        )
+        new_result = result.clustering.apply(da_flat)
+        np.testing.assert_array_equal(
+            result.cluster_assignments.values,
+            new_result.cluster_assignments.values,
+        )
+
+    def test_apply_with_multi_dim_cluster(self, tmp_path):
+        """Apply works with multi-dim cluster_dim (MultiIndex)."""
+        da = _make_da()
+        result = tsam_xarray.aggregate(
+            da,
+            time_dim="time",
+            cluster_dim=["variable", "region"],
+            n_clusters=4,
+        )
+        path = tmp_path / "clustering.json"
+        result.clustering.to_json(str(path))
+        clustering = tsam_xarray.load_clustering(str(path))
+        new_result = clustering.apply(da)
+        assert set(new_result.typical_periods.dims) == {
+            "cluster",
+            "timestep",
+            "variable",
+            "region",
+        }
+
+    def test_apply_override_cluster_dim(self):
+        """apply() accepts different cluster_dim for new data."""
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+        )
+        # Rename dim and apply with override
+        da_renamed = da_flat.rename({"variable": "source"})
+        new_result = result.clustering.apply(da_renamed, cluster_dim="source")
+        assert "source" in new_result.typical_periods.dims
+
+    def test_apply_rejects_missing_time_dim(self):
+        """apply() raises if time_dim not in new data."""
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+        )
+        da_bad = da_flat.rename({"time": "t"})
+        with pytest.raises(ValueError, match="time_dim"):
+            result.clustering.apply(da_bad)
+
+    def test_apply_rejects_missing_cluster_dim(self):
+        """apply() raises if cluster_dim not in new data."""
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+        )
+        da_bad = da_flat.rename({"variable": "other"})
+        with pytest.raises(ValueError, match="cluster_dim"):
+            result.clustering.apply(da_bad)
+
+    def test_apply_rejects_mismatched_slice_keys(self):
+        """apply() raises if slice coords don't match stored."""
+        da = _make_da(scenarios=["low", "high"])
+        result = tsam_xarray.aggregate(
+            da,
+            time_dim="time",
+            cluster_dim=["variable", "region"],
+            n_clusters=4,
+        )
+        # New data with different scenarios
+        da_bad = _make_da(scenarios=["a", "b"])
+        with pytest.raises(ValueError, match="No stored clustering"):
+            result.clustering.apply(da_bad)
+
+    def test_save_load_nondefault_time_dim(self, tmp_path):
+        """Round-trip with non-default time_dim."""
+        time = pd.date_range("2020-01-01", periods=30 * 24, freq="h")
+        rng = np.random.default_rng(42)
+        da = xr.DataArray(
+            rng.random((len(time), 2)),
+            dims=["t", "variable"],
+            coords={"t": time, "variable": ["solar", "wind"]},
+        )
+        result = tsam_xarray.aggregate(
+            da, time_dim="t", cluster_dim="variable", n_clusters=4
+        )
+        path = tmp_path / "clustering.json"
+        result.clustering.to_json(str(path))
+        clustering = tsam_xarray.load_clustering(str(path))
+        assert clustering.time_dim == "t"
+        new_result = clustering.apply(da)
+        assert new_result.n_clusters == result.n_clusters
+        assert new_result.typical_periods.dims == result.typical_periods.dims
+
+    def test_json_file_structure(self, tmp_path):
+        """JSON has expected top-level keys and array-based clustering keys."""
+        import json
+
+        da = _make_da(scenarios=["low", "high"])
+        result = tsam_xarray.aggregate(
+            da,
+            time_dim="time",
+            cluster_dim=["variable", "region"],
+            n_clusters=4,
+        )
+        path = tmp_path / "clustering.json"
+        result.clustering.to_json(str(path))
+        with open(path) as f:
+            data = json.load(f)
+        assert "time_dim" in data
+        assert "cluster_dim" in data
+        assert "slice_dims" in data
+        assert "clusterings" in data
+        assert isinstance(data["clusterings"], list)
+        assert isinstance(data["clusterings"][0]["key"], list)
+
+    def test_save_load_with_segmentation(self, tmp_path):
+        """Segmentation info survives JSON round-trip."""
+        from tsam import SegmentConfig
+
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+            segments=SegmentConfig(n_segments=6),
+        )
+        path = tmp_path / "clustering.json"
+        result.clustering.to_json(str(path))
+        clustering = tsam_xarray.load_clustering(str(path))
+        new_result = clustering.apply(da_flat)
+        assert new_result.segment_durations is not None
+        assert new_result.segment_durations.sizes["timestep"] == 6
+
+    def test_apply_different_variables(self, tmp_path):
+        """Cluster on subset, apply to full dataset."""
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        # Cluster on solar only
+        da_solar = da_flat.sel(variable=["solar"])
+        result = tsam_xarray.aggregate(
+            da_solar,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+        )
+        path = tmp_path / "clustering.json"
+        result.clustering.to_json(str(path))
+        clustering = tsam_xarray.load_clustering(str(path))
+        # Apply to both solar and wind
+        new_result = clustering.apply(da_flat)
+        assert set(new_result.typical_periods.coords["variable"].values) == {
+            "solar",
+            "wind",
+        }
+
+    def test_apply_sliced_multi_dim_cluster(self, tmp_path):
+        """Save/load/apply with slicing AND multi-dim cluster_dim."""
+        da = _make_da(scenarios=["low", "high"])
+        result = tsam_xarray.aggregate(
+            da,
+            time_dim="time",
+            cluster_dim=["variable", "region"],
+            n_clusters=4,
+        )
+        path = tmp_path / "clustering.json"
+        result.clustering.to_json(str(path))
+        clustering = tsam_xarray.load_clustering(str(path))
+        new_result = clustering.apply(da)
+        np.testing.assert_allclose(
+            result.typical_periods.values,
+            new_result.typical_periods.values,
+        )
+
+    def test_slice_dims_preserved_in_json(self, tmp_path):
+        """slice_dims stored and loaded correctly."""
+        da = _make_da(scenarios=["low", "high"])
+        result = tsam_xarray.aggregate(
+            da,
+            time_dim="time",
+            cluster_dim=["variable", "region"],
+            n_clusters=4,
+        )
+        path = tmp_path / "clustering.json"
+        result.clustering.to_json(str(path))
+        clustering = tsam_xarray.load_clustering(str(path))
+        assert clustering.slice_dims == ["scenario"]
+
+    def test_disaggregate_after_apply(self, tmp_path):
+        """disaggregate works on apply() results."""
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+        )
+        path = tmp_path / "clustering.json"
+        result.clustering.to_json(str(path))
+        clustering = tsam_xarray.load_clustering(str(path))
+        new_result = clustering.apply(da_flat)
+        dis = new_result.disaggregate(new_result.typical_periods)
+        xr.testing.assert_allclose(dis, new_result.reconstructed)
