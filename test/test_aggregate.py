@@ -209,17 +209,57 @@ class TestExplicitTimeDim:
 
 
 class TestWeights:
-    def test_weights_simple(self):
+    def test_weights_simple_dict(self):
+        """Simple dict for single cluster_dim."""
         da = _make_da()
         da_flat = da.isel(region=0).drop_vars("region")
         result = tsam_xarray.aggregate(
             da_flat,
-            n_clusters=4,
             time_dim="time",
             cluster_dim="variable",
+            n_clusters=4,
             weights={"solar": 2.0, "wind": 1.0},
         )
         assert result.typical_periods.sizes["cluster"] == 4
+
+    def test_weights_dict_of_dicts(self):
+        """Dict-of-dicts for multiple cluster_dim."""
+        da = _make_da()
+        result = tsam_xarray.aggregate(
+            da,
+            time_dim="time",
+            cluster_dim=["variable", "region"],
+            n_clusters=4,
+            weights={"variable": {"solar": 2.0}},
+        )
+        assert result.typical_periods.sizes["cluster"] == 4
+
+    def test_weights_multi_dim_multiply(self):
+        """Weights from multiple dims are multiplied."""
+        da = _make_da()
+        result = tsam_xarray.aggregate(
+            da,
+            time_dim="time",
+            cluster_dim=["variable", "region"],
+            n_clusters=4,
+            weights={
+                "variable": {"solar": 2.0},
+                "region": {"north": 1.5},
+            },
+        )
+        assert result.typical_periods.sizes["cluster"] == 4
+
+    def test_weights_simple_dict_rejects_multi_dim(self):
+        """Simple dict raises for multiple cluster_dim."""
+        da = _make_da()
+        with pytest.raises(ValueError, match="single cluster_dim"):
+            tsam_xarray.aggregate(
+                da,
+                time_dim="time",
+                cluster_dim=["variable", "region"],
+                n_clusters=4,
+                weights={"solar": 2.0},
+            )
 
 
 class TestValidation:
