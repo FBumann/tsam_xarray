@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.0.3-alpha.0](https://github.com/FBumann/tsam_xarray/compare/v0.0.2-alpha.0...v0.0.3-alpha.0) (2026-03-25)
+
+
+### Features
+
+* clustering IO and apply() ([#35](https://github.com/FBumann/tsam_xarray/issues/35)) ([2068e12](https://github.com/FBumann/tsam_xarray/commit/2068e123892d81008d8fbfa6396a4e6dd51e7f2d))
+
+
+### Bug Fixes
+
+* allow 1D DataArray clustering with cluster_dim=() ([#38](https://github.com/FBumann/tsam_xarray/issues/38)) ([9a1a46b](https://github.com/FBumann/tsam_xarray/commit/9a1a46b0d51b63c4f062d5c5871deffd9215626d)), closes [#36](https://github.com/FBumann/tsam_xarray/issues/36)
+
 ## [0.0.2-alpha.0](https://github.com/FBumann/tsam_xarray/compare/v0.0.1-alpha.0...v0.0.2-alpha.0) (2026-03-25)
 
 
