@@ -61,6 +61,7 @@ def aggregate(
     col_dims = _resolve_cluster_dim(cluster_dim)
     slice_dims = _infer_slice_dims(da, time_dim, col_dims)
     _validate(da, time_dim, col_dims, slice_dims)
+    da = _validate_data(da, time_dim, col_dims, slice_dims)
     _validate_no_cluster_config_weights(tsam_kwargs)
     per_dim_weights = _normalize_weights(weights, da, col_dims)
 
@@ -140,6 +141,75 @@ def _validate(
         if d == time_dim:
             msg = "cluster_dim and time_dim must not overlap"
             raise ValueError(msg)
+
+
+_RESERVED_DIMS = {"cluster", "timestep", "period"}
+
+
+def _validate_data(
+    da: xr.DataArray,
+    time_dim: str,
+    col_dims: list[str],
+    slice_dims: list[str],
+) -> xr.DataArray:
+    """Validate data values, dtypes, and coordinates.
+
+    Returns the (possibly computed) DataArray.
+    """
+    # Reserved dimension names
+    all_user_dims = {time_dim, *col_dims, *slice_dims}
+    reserved_conflict = all_user_dims & _RESERVED_DIMS
+    if reserved_conflict:
+        msg = (
+            f"Dimension names {reserved_conflict} are reserved by "
+            "tsam_xarray for output dimensions. Rename them in "
+            "your input DataArray."
+        )
+        raise ValueError(msg)
+
+    # Dask arrays — compute before other checks
+    if hasattr(da.data, "dask"):
+        import warnings
+
+        warnings.warn(
+            "DataArray is backed by dask. Computing eagerly for tsam.",
+            stacklevel=3,
+        )
+        da = da.compute()
+
+    # Numeric dtype
+    if not np.issubdtype(da.dtype, np.number):
+        msg = (
+            f"DataArray dtype must be numeric, got {da.dtype}. Convert to float first."
+        )
+        raise TypeError(msg)
+
+    # Datetime time coordinate
+    time_dtype = da.coords[time_dim].dtype
+    if not np.issubdtype(time_dtype, np.datetime64):
+        msg = (
+            f"time_dim {time_dim!r} must have datetime coordinates, "
+            f"got dtype {time_dtype}"
+        )
+        raise TypeError(msg)
+
+    # NaN check
+    if da.isnull().any():
+        msg = "DataArray contains NaN values. Clean your data before aggregating."
+        raise ValueError(msg)
+
+    # Regular time frequency
+    time_vals = da.coords[time_dim].values
+    if len(time_vals) > 1:
+        diffs = np.diff(time_vals)
+        if not np.all(diffs == diffs[0]):
+            msg = (
+                f"time_dim {time_dim!r} must have regular spacing. "
+                "Found irregular time intervals."
+            )
+            raise ValueError(msg)
+
+    return da
 
 
 def _to_dataframe(
