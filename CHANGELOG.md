@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.2-alpha.0](https://github.com/FBumann/tsam_xarray/compare/v0.0.1-alpha.0...v0.0.2-alpha.0) (2026-03-25)
+
+
+### Features
+
+* input data validation ([#32](https://github.com/FBumann/tsam_xarray/issues/32)) ([69fbc51](https://github.com/FBumann/tsam_xarray/commit/69fbc5119a5a683803a1cfba8e00507e4c94cefb))
+
 ## 0.0.1-alpha.0 (2026-03-25)
 
 
