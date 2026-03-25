@@ -632,3 +632,74 @@ class TestDisaggregate:
         )
         dis = result.disaggregate(result.typical_periods)
         assert bool(dis.isnull().any())
+
+
+class TestDataValidation:
+    def test_reserved_dim_name_cluster(self):
+        time = pd.date_range("2020-01-01", periods=30 * 24, freq="h")
+        da = xr.DataArray(
+            np.random.default_rng(42).random((len(time), 2)),
+            dims=["time", "cluster"],
+            coords={"time": time, "cluster": ["a", "b"]},
+        )
+        with pytest.raises(ValueError, match="reserved"):
+            tsam_xarray.aggregate(
+                da, time_dim="time", cluster_dim="cluster", n_clusters=4
+            )
+
+    def test_reserved_dim_name_timestep(self):
+        time = pd.date_range("2020-01-01", periods=30 * 24, freq="h")
+        da = xr.DataArray(
+            np.random.default_rng(42).random((len(time), 2)),
+            dims=["time", "timestep"],
+            coords={"time": time, "timestep": [0, 1]},
+        )
+        with pytest.raises(ValueError, match="reserved"):
+            tsam_xarray.aggregate(
+                da, time_dim="time", cluster_dim="timestep", n_clusters=4
+            )
+
+    def test_nan_rejected(self):
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        da_nan = da_flat.copy()
+        da_nan.values[0, 0] = np.nan
+        with pytest.raises(ValueError, match="NaN"):
+            tsam_xarray.aggregate(
+                da_nan, time_dim="time", cluster_dim="variable", n_clusters=4
+            )
+
+    def test_non_numeric_dtype(self):
+        time = pd.date_range("2020-01-01", periods=30 * 24, freq="h")
+        da = xr.DataArray(
+            [["a", "b"]] * len(time),
+            dims=["time", "variable"],
+            coords={"time": time, "variable": ["x", "y"]},
+        )
+        with pytest.raises(TypeError, match="numeric"):
+            tsam_xarray.aggregate(
+                da, time_dim="time", cluster_dim="variable", n_clusters=4
+            )
+
+    def test_non_datetime_time_coord(self):
+        da = xr.DataArray(
+            np.random.default_rng(42).random((100, 2)),
+            dims=["time", "variable"],
+            coords={"time": np.arange(100), "variable": ["a", "b"]},
+        )
+        with pytest.raises(TypeError, match="datetime"):
+            tsam_xarray.aggregate(
+                da, time_dim="time", cluster_dim="variable", n_clusters=4
+            )
+
+    def test_irregular_time_spacing(self):
+        times = pd.to_datetime(["2020-01-01", "2020-01-02", "2020-01-04"])
+        da = xr.DataArray(
+            np.random.default_rng(42).random((3, 2)),
+            dims=["time", "variable"],
+            coords={"time": times, "variable": ["a", "b"]},
+        )
+        with pytest.raises(ValueError, match="regular spacing"):
+            tsam_xarray.aggregate(
+                da, time_dim="time", cluster_dim="variable", n_clusters=2
+            )
