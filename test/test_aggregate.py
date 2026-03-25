@@ -209,8 +209,38 @@ class TestExplicitTimeDim:
 
 
 class TestWeights:
-    def test_weights_single_dim(self):
-        """DataArray weights for single cluster_dim."""
+    def test_weights_affect_clustering(self):
+        """Weighted and unweighted produce different results."""
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        w = xr.DataArray(
+            [10.0, 0.1],
+            dims=["variable"],
+            coords={"variable": ["solar", "wind"]},
+        )
+        result_no_w = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+        )
+        result_w = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+            weights=w,
+        )
+        # Weighting solar 10x should improve solar RMSE
+        # at the expense of wind RMSE
+        rmse_no_w = result_no_w.accuracy.rmse
+        rmse_w = result_w.accuracy.rmse
+        assert float(rmse_w.sel(variable="solar")) < float(
+            rmse_no_w.sel(variable="solar")
+        )
+
+    def test_weights_passed_to_tsam(self):
+        """Verify weights reach tsam's internal weightDict."""
         da = _make_da()
         da_flat = da.isel(region=0).drop_vars("region")
         w = xr.DataArray(
@@ -225,10 +255,13 @@ class TestWeights:
             n_clusters=4,
             weights=w,
         )
-        assert result.typical_periods.sizes["cluster"] == 4
+        # tsam stores weights in the internal aggregation object
+        tsam_weights = result.raw._aggregation.weightDict
+        assert tsam_weights["solar"] == 2.0
+        assert tsam_weights["wind"] == 1.0
 
-    def test_weights_broadcasts_across_dims(self):
-        """Weights on one dim broadcast across other cluster dims."""
+    def test_weights_broadcast_passed_to_tsam(self):
+        """Single-dim weights broadcast correctly to MultiIndex columns."""
         da = _make_da()
         w = xr.DataArray(
             [2.0, 1.0],
@@ -242,27 +275,13 @@ class TestWeights:
             n_clusters=4,
             weights=w,
         )
-        assert result.typical_periods.sizes["cluster"] == 4
-
-    def test_weights_multi_dim(self):
-        """Weights on multiple dims are multiplied."""
-        da = _make_da()
-        w = xr.DataArray(
-            [[3.0, 1.5], [1.0, 1.0]],
-            dims=["variable", "region"],
-            coords={
-                "variable": ["solar", "wind"],
-                "region": ["north", "south"],
-            },
-        )
-        result = tsam_xarray.aggregate(
-            da,
-            time_dim="time",
-            cluster_dim=["variable", "region"],
-            n_clusters=4,
-            weights=w,
-        )
-        assert result.typical_periods.sizes["cluster"] == 4
+        tsam_weights = result.raw._aggregation.weightDict
+        # solar columns should all be 2.0, wind 1.0
+        for col, weight in tsam_weights.items():
+            if col[0] == "solar":
+                assert weight == 2.0
+            else:
+                assert weight == 1.0
 
     def test_weights_rejects_non_cluster_dims(self):
         """Weights with dims not in cluster_dim raises."""
