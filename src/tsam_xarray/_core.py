@@ -47,6 +47,7 @@ def aggregate(
     col_dims = _resolve_cluster_dim(da, time_dim, cluster_dim)
     slice_dims = _infer_slice_dims(da, time_dim, col_dims)
     _validate(da, time_dim, col_dims, slice_dims)
+    _validate_no_cluster_config_weights(tsam_kwargs)
 
     if not slice_dims:
         return _aggregate_single(
@@ -104,6 +105,20 @@ def _infer_slice_dims(
 def _validate_time_dim(da: xr.DataArray, time_dim: str) -> None:
     if time_dim not in da.dims:
         msg = f"time_dim {time_dim!r} not in DataArray dims {set(da.dims)}"
+        raise ValueError(msg)
+
+
+def _validate_no_cluster_config_weights(
+    tsam_kwargs: dict[str, Any],
+) -> None:
+    """Reject deprecated weights in ClusterConfig."""
+    cluster_config = tsam_kwargs.get("cluster")
+    if cluster_config is not None and cluster_config.weights is not None:
+        msg = (
+            "ClusterConfig.weights is deprecated in tsam and not "
+            "supported by tsam_xarray. Use the top-level 'weights' "
+            "parameter of aggregate() instead."
+        )
         raise ValueError(msg)
 
 

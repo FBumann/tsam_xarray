@@ -232,6 +232,19 @@ class TestValidation:
         with pytest.raises(ValueError, match="multiple non-time"):
             tsam_xarray.aggregate(da, n_clusters=4)
 
+    def test_cluster_config_weights_rejected(self):
+        """ClusterConfig.weights is deprecated and not supported."""
+        from tsam import ClusterConfig
+
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        with pytest.raises(ValueError, match="ClusterConfig.weights"):
+            tsam_xarray.aggregate(
+                da_flat,
+                n_clusters=4,
+                cluster=ClusterConfig(weights={"solar": 2.0}),
+            )
+
 
 class TestMultiIndexPassthrough:
     """Verify tsam preserves MultiIndex columns."""
