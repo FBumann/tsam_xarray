@@ -611,6 +611,36 @@ class TestDisaggregate:
         assert "timestep" not in dis.dims
         assert "variable" in dis.dims
 
+    def test_roundtrip_multi_dim(self):
+        """disaggregate works with auto-sliced dims."""
+        da = _make_da(scenarios=["low", "high"])
+        result = tsam_xarray.aggregate(
+            da,
+            time_dim="time",
+            cluster_dim=["variable", "region"],
+            n_clusters=4,
+        )
+        dis = result.disaggregate(result.typical_periods)
+        assert dis.dims == result.reconstructed.dims
+        np.testing.assert_allclose(dis.values, result.reconstructed.values)
+
+    def test_roundtrip_multi_dim_with_segments(self):
+        """disaggregate + ffill with sliced segmented data."""
+        from tsam import SegmentConfig
+
+        da = _make_da(scenarios=["low", "high"])
+        result = tsam_xarray.aggregate(
+            da,
+            time_dim="time",
+            cluster_dim=["variable", "region"],
+            n_clusters=4,
+            segments=SegmentConfig(n_segments=6),
+        )
+        dis = result.disaggregate(result.typical_periods)
+        filled = dis.ffill(dim="time")
+        assert filled.dims == result.reconstructed.dims
+        np.testing.assert_allclose(filled.values, result.reconstructed.values)
+
     def test_disaggregate_segmented_has_nan(self):
         """Segmented disaggregate has NaN at non-boundary timesteps."""
         from tsam import SegmentConfig
