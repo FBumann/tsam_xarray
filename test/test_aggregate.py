@@ -1050,3 +1050,116 @@ class TestClusteringIO:
         new_result = clustering.apply(da)
         assert new_result.n_clusters == result.n_clusters
         assert new_result.typical_periods.dims == result.typical_periods.dims
+
+    def test_json_file_structure(self, tmp_path):
+        """JSON has expected top-level keys and array-based clustering keys."""
+        import json
+
+        da = _make_da(scenarios=["low", "high"])
+        result = tsam_xarray.aggregate(
+            da,
+            time_dim="time",
+            cluster_dim=["variable", "region"],
+            n_clusters=4,
+        )
+        path = tmp_path / "clustering.json"
+        result.clustering.to_json(str(path))
+        with open(path) as f:
+            data = json.load(f)
+        assert "time_dim" in data
+        assert "cluster_dim" in data
+        assert "slice_dims" in data
+        assert "clusterings" in data
+        assert isinstance(data["clusterings"], list)
+        assert isinstance(data["clusterings"][0]["key"], list)
+
+    def test_save_load_with_segmentation(self, tmp_path):
+        """Segmentation info survives JSON round-trip."""
+        from tsam import SegmentConfig
+
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+            segments=SegmentConfig(n_segments=6),
+        )
+        path = tmp_path / "clustering.json"
+        result.clustering.to_json(str(path))
+        clustering = tsam_xarray.load_clustering(str(path))
+        new_result = clustering.apply(da_flat)
+        assert new_result.segment_durations is not None
+        assert new_result.segment_durations.sizes["timestep"] == 6
+
+    def test_apply_different_variables(self, tmp_path):
+        """Cluster on subset, apply to full dataset."""
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        # Cluster on solar only
+        da_solar = da_flat.sel(variable=["solar"])
+        result = tsam_xarray.aggregate(
+            da_solar,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+        )
+        path = tmp_path / "clustering.json"
+        result.clustering.to_json(str(path))
+        clustering = tsam_xarray.load_clustering(str(path))
+        # Apply to both solar and wind
+        new_result = clustering.apply(da_flat)
+        assert set(new_result.typical_periods.coords["variable"].values) == {
+            "solar",
+            "wind",
+        }
+
+    def test_apply_sliced_multi_dim_cluster(self, tmp_path):
+        """Save/load/apply with slicing AND multi-dim cluster_dim."""
+        da = _make_da(scenarios=["low", "high"])
+        result = tsam_xarray.aggregate(
+            da,
+            time_dim="time",
+            cluster_dim=["variable", "region"],
+            n_clusters=4,
+        )
+        path = tmp_path / "clustering.json"
+        result.clustering.to_json(str(path))
+        clustering = tsam_xarray.load_clustering(str(path))
+        new_result = clustering.apply(da)
+        np.testing.assert_allclose(
+            result.typical_periods.values,
+            new_result.typical_periods.values,
+        )
+
+    def test_slice_dims_preserved_in_json(self, tmp_path):
+        """slice_dims stored and loaded correctly."""
+        da = _make_da(scenarios=["low", "high"])
+        result = tsam_xarray.aggregate(
+            da,
+            time_dim="time",
+            cluster_dim=["variable", "region"],
+            n_clusters=4,
+        )
+        path = tmp_path / "clustering.json"
+        result.clustering.to_json(str(path))
+        clustering = tsam_xarray.load_clustering(str(path))
+        assert clustering.slice_dims == ["scenario"]
+
+    def test_disaggregate_after_apply(self, tmp_path):
+        """disaggregate works on apply() results."""
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+        )
+        path = tmp_path / "clustering.json"
+        result.clustering.to_json(str(path))
+        clustering = tsam_xarray.load_clustering(str(path))
+        new_result = clustering.apply(da_flat)
+        dis = new_result.disaggregate(new_result.typical_periods)
+        xr.testing.assert_allclose(dis, new_result.reconstructed)
