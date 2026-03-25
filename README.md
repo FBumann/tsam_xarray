@@ -13,7 +13,7 @@ Lightweight [xarray](https://xarray.dev/) wrapper for [tsam](https://github.com/
 ## Installation
 
 ```bash
-pip install tsam-xarray
+pip install tsam_xarray
 ```
 
 ## Quick start
