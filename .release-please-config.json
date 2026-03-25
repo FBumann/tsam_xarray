@@ -1,5 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "bootstrap-sha": "98e8ae9ccca7b625103fcc1b63d9671491cf420d",
   "include-component-in-tag": false,
   "packages": {
     ".": {
@@ -9,7 +10,8 @@
       "bump-patch-for-minor-pre-major": true,
       "changelog-path": "CHANGELOG.md",
       "prerelease": true,
-      "prerelease-type": "alpha"
+      "prerelease-type": "alpha",
+      "initial-version": "0.0.1-alpha.0"
     }
   }
 }
