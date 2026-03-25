@@ -93,4 +93,4 @@ result = tsam_xarray.aggregate(
 
 ## Documentation
 
-Full docs with interactive examples: [tsam_xarray.readthedocs.io](https://tsam_xarray.readthedocs.io/)
+Full docs with interactive examples: [tsam-xarray.readthedocs.io](https://tsam-xarray.readthedocs.io/)
