@@ -623,6 +623,42 @@ class TestDisaggregate:
         assert bool(dis.isnull().any())
 
 
+class Test1DDataArray:
+    def test_1d_time_series(self):
+        """1D DataArray with only time dim works."""
+        time = pd.date_range("2020-01-01", periods=30 * 24, freq="h")
+        rng = np.random.default_rng(42)
+        da = xr.DataArray(
+            rng.random(len(time)),
+            dims=["time"],
+            coords={"time": time},
+        )
+        result = tsam_xarray.aggregate(
+            da, time_dim="time", cluster_dim=(), n_clusters=4
+        )
+        assert set(result.typical_periods.dims) == {
+            "cluster",
+            "timestep",
+        }
+        assert result.n_clusters == 4
+
+    def test_1d_disaggregate(self):
+        """disaggregate works on 1D result."""
+        time = pd.date_range("2020-01-01", periods=30 * 24, freq="h")
+        rng = np.random.default_rng(42)
+        da = xr.DataArray(
+            rng.random(len(time)),
+            dims=["time"],
+            coords={"time": time},
+        )
+        result = tsam_xarray.aggregate(
+            da, time_dim="time", cluster_dim=(), n_clusters=4
+        )
+        dis = result.disaggregate(result.typical_periods)
+        assert "time" in dis.dims
+        assert dis.sizes["time"] == da.sizes["time"]
+
+
 class TestDataValidation:
     def test_reserved_dim_name_cluster(self):
         time = pd.date_range("2020-01-01", periods=30 * 24, freq="h")
