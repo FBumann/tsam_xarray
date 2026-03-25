@@ -24,6 +24,7 @@ docs = [
     "mkdocstrings[python]>=0.27",
     "ipykernel>=6",
     "xarray-plotly>=0.0.14",
+    "mkdocs-plotly-plugin>=0.1",
 ]
 dev = [
     {include-group = "docs"},
