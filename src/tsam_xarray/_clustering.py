@@ -109,7 +109,7 @@ class ClusteringInfo:
         for key, cr in self.clusterings.items():
             entries.append(
                 {
-                    "key": [str(k) for k in key],
+                    "key": list(_native_key(key)),
                     "clustering": cr.to_dict(),
                 }
             )
@@ -152,20 +152,20 @@ class ClusteringInfo:
         )
 
 
+def _native_key(key: tuple[Any, ...]) -> tuple[Any, ...]:
+    """Convert numpy scalars in key to Python builtins."""
+    return tuple(k.item() if hasattr(k, "item") else k for k in key)
+
+
 def _lookup_clustering(
     clusterings: dict[tuple[Hashable, ...], ClusteringResult],
     key: tuple[Any, ...],
 ) -> ClusteringResult:
-    """Look up clustering by key, matching by string comparison."""
-    # Try exact match first
-    if key in clusterings:
-        return clusterings[key]
-    # Fall back to string comparison (handles JSON round-trip type loss)
-    str_key = tuple(str(k) for k in key)
-    for stored_key, cr in clusterings.items():
-        if tuple(str(k) for k in stored_key) == str_key:
-            return cr
-    msg = f"No stored clustering for key {key}"
+    """Look up clustering by key."""
+    native = _native_key(key)
+    if native in clusterings:
+        return clusterings[native]
+    msg = f"No stored clustering for key {native}"
     raise KeyError(msg)
 
 

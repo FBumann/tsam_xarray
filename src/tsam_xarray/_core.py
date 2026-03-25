@@ -519,13 +519,13 @@ def _concat_results(
         return _concat_along_dims(arrays, slice_dims, slice_coords)
 
     # Merge per-slice ClusteringInfos into one
-    from tsam_xarray._clustering import ClusteringInfo
+    from tsam_xarray._clustering import ClusteringInfo, _native_key
 
     first = results[0]
     merged_clusterings: dict[tuple[Hashable, ...], Any] = {}
     for r, key in zip(results, slice_keys, strict=True):
         for cr in r.clustering.clusterings.values():
-            merged_clusterings[key] = cr
+            merged_clusterings[_native_key(key)] = cr
 
     merged_clustering = ClusteringInfo(
         time_dim=first.clustering.time_dim,
