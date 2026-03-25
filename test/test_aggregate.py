@@ -283,6 +283,30 @@ class TestWeights:
             else:
                 assert weight == 1.0
 
+    def test_weights_multi_dim_passed_to_tsam(self):
+        """Multi-dim weights are multiplied and passed to tsam."""
+        da = _make_da()
+        w = xr.DataArray(
+            [[6.0, 3.0], [2.0, 1.0]],
+            dims=["variable", "region"],
+            coords={
+                "variable": ["solar", "wind"],
+                "region": ["north", "south"],
+            },
+        )
+        result = tsam_xarray.aggregate(
+            da,
+            time_dim="time",
+            cluster_dim=["variable", "region"],
+            n_clusters=4,
+            weights=w,
+        )
+        tsam_weights = result.raw._aggregation.weightDict
+        assert tsam_weights[("solar", "north")] == 6.0
+        assert tsam_weights[("solar", "south")] == 3.0
+        assert tsam_weights[("wind", "north")] == 2.0
+        assert tsam_weights[("wind", "south")] == 1.0
+
     def test_weights_rejects_non_cluster_dims(self):
         """Weights with dims not in cluster_dim raises."""
         da = _make_da()
