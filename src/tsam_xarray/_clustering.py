@@ -28,6 +28,7 @@ class ClusteringInfo:
 
     time_dim: str
     cluster_dim: list[str]
+    slice_dims: list[str]
     clusterings: dict[tuple[Hashable, ...], ClusteringResult]
     """Per-slice clustering. Single entry ``{(): result}`` when no slicing."""
 
@@ -93,25 +94,34 @@ class ClusteringInfo:
 
         return _concat_results(results, slice_dims, slice_coords, slice_keys)
 
-    def to_json(self, path: str | Path) -> None:
+    def to_json(self, path: str | Path, **json_kwargs: Any) -> None:
         """Save clustering to JSON file.
 
         Parameters
         ----------
         path : str or Path
             Output file path.
+        **json_kwargs
+            Additional keyword arguments passed to ``json.dump()``.
+            Default: ``indent=2``.
         """
+        entries = []
+        for key, cr in self.clusterings.items():
+            entries.append(
+                {
+                    "key": [str(k) for k in key],
+                    "clustering": cr.to_dict(),
+                }
+            )
         data: dict[str, Any] = {
             "time_dim": self.time_dim,
             "cluster_dim": self.cluster_dim,
-            "clusterings": {},
+            "slice_dims": self.slice_dims,
+            "clusterings": entries,
         }
-        for key, cr in self.clusterings.items():
-            str_key = "|".join(str(k) for k in key) if key else ""
-            data["clusterings"][str_key] = cr.to_dict()
 
         with Path(path).open("w") as f:
-            json.dump(data, f, indent=2)
+            json.dump(data, f, **json_kwargs)
 
     @classmethod
     def from_json(cls, path: str | Path) -> ClusteringInfo:
@@ -130,13 +140,14 @@ class ClusteringInfo:
             data = json.load(f)
 
         clusterings: dict[tuple[Hashable, ...], ClusteringResult] = {}
-        for str_key, cr_dict in data["clusterings"].items():
-            key = tuple(str_key.split("|")) if str_key else ()
-            clusterings[key] = ClusteringResult.from_dict(cr_dict)
+        for entry in data["clusterings"]:
+            key = tuple(entry["key"])
+            clusterings[key] = ClusteringResult.from_dict(entry["clustering"])
 
         return cls(
             time_dim=data["time_dim"],
             cluster_dim=data["cluster_dim"],
+            slice_dims=data.get("slice_dims", []),
             clusterings=clusterings,
         )
 
@@ -243,6 +254,7 @@ def _apply_single(
     clustering_info = ClusteringInfo(
         time_dim=time_dim,
         cluster_dim=col_dims,
+        slice_dims=[],
         clusterings={(): tsam_result.clustering},
     )
 

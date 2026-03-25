@@ -444,6 +444,7 @@ def _aggregate_single(
     clustering_info = ClusteringInfo(
         time_dim=time_dim,
         cluster_dim=col_dims,
+        slice_dims=[],
         clusterings={(): tsam_result.clustering},
     )
 
@@ -529,6 +530,7 @@ def _concat_results(
     merged_clustering = ClusteringInfo(
         time_dim=first.clustering.time_dim,
         cluster_dim=first.clustering.cluster_dim,
+        slice_dims=slice_dims,
         clusterings=merged_clusterings,
     )
 

@@ -158,6 +158,7 @@ class AggregationResult:
             clustering=ClusteringInfo(
                 time_dim=self.clustering.time_dim,
                 cluster_dim=self.clustering.cluster_dim,
+                slice_dims=[],
                 clusterings={(): cr},
             ),
         )

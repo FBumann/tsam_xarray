@@ -51,6 +51,7 @@ nav:
     - Getting Started: examples/getting-started.ipynb
     - Multi-Dimensional Data: examples/multi-dim.ipynb
     - Segmentation: examples/segmentation.ipynb
+    - Clustering IO: examples/clustering-io.ipynb
   - API Reference: api/
 
 exclude_docs: |

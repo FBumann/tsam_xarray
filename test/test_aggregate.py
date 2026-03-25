@@ -1030,3 +1030,23 @@ class TestClusteringIO:
         da_bad = _make_da(scenarios=["a", "b"])
         with pytest.raises(ValueError, match="No stored clustering"):
             result.clustering.apply(da_bad)
+
+    def test_save_load_nondefault_time_dim(self, tmp_path):
+        """Round-trip with non-default time_dim."""
+        time = pd.date_range("2020-01-01", periods=30 * 24, freq="h")
+        rng = np.random.default_rng(42)
+        da = xr.DataArray(
+            rng.random((len(time), 2)),
+            dims=["t", "variable"],
+            coords={"t": time, "variable": ["solar", "wind"]},
+        )
+        result = tsam_xarray.aggregate(
+            da, time_dim="t", cluster_dim="variable", n_clusters=4
+        )
+        path = tmp_path / "clustering.json"
+        result.clustering.to_json(str(path))
+        clustering = tsam_xarray.load_clustering(str(path))
+        assert clustering.time_dim == "t"
+        new_result = clustering.apply(da)
+        assert new_result.n_clusters == result.n_clusters
+        assert new_result.typical_periods.dims == result.typical_periods.dims
