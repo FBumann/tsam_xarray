@@ -5,7 +5,12 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import pandas as pd
+    import plotly.graph_objects as go
+    import xarray as xr
 
 import numpy as np
 from tsam import SegmentConfig
@@ -50,14 +55,14 @@ class TuningResult:
     )
 
     @property
-    def summary(self) -> Any:
+    def summary(self) -> pd.DataFrame:
         """Summary table of all tested configurations, sorted by RMSE."""
         import pandas as pd
 
         return pd.DataFrame(self.history).sort_values("rmse")
 
     @property
-    def summary_matrix(self) -> Any:
+    def summary_matrix(self) -> xr.Dataset:
         """Metrics as Dataset with ``(n_clusters, n_segments)`` dims.
 
         Contains ``rmse`` and ``timesteps`` as variables.
@@ -84,7 +89,7 @@ class TuningResult:
             raise ValueError(msg)
 
     @property
-    def reconstructed(self) -> Any:
+    def reconstructed(self) -> xr.DataArray:
         """Reconstructed time series for each tested config.
 
         Lazy and cached.  Returns an xarray DataArray with the
@@ -105,10 +110,10 @@ class TuningResult:
                 )
                 arrays.append(arr)
             self._cache["reconstructed"] = xr.combine_by_coords(arrays, join="outer")
-        return self._cache["reconstructed"]
+        return self._cache["reconstructed"]  # type: ignore[no-any-return]
 
     @property
-    def accuracy(self) -> Any:
+    def accuracy(self) -> xr.Dataset:
         """Per-column accuracy metrics for each tested config.
 
         Lazy and cached.  Returns an xarray Dataset with variables
@@ -137,7 +142,7 @@ class TuningResult:
                 )
                 datasets.append(ds)
             self._cache["accuracy"] = xr.combine_by_coords(datasets, join="outer")
-        return self._cache["accuracy"]
+        return self._cache["accuracy"]  # type: ignore[no-any-return]
 
     def find_by_timesteps(self, target: int) -> AggregationResult:
         """Find the result closest to a target timestep count.
@@ -179,7 +184,7 @@ class TuningResult:
         candidates.sort(key=lambda x: x[0])
         return self.all_results[candidates[0][1]]
 
-    def plot(self, show_labels: bool = True, **kwargs: Any) -> Any:
+    def plot(self, show_labels: bool = True, **kwargs: Any) -> go.Figure:
         """Plot RMSE vs timesteps.
 
         Requires ``plotly`` (``pip install plotly``).
@@ -219,7 +224,6 @@ class TuningResult:
         return fig
 
     def __len__(self) -> int:
-        self._require_all_results()
         return len(self.all_results)
 
     def __getitem__(self, index: int) -> AggregationResult:
@@ -334,8 +338,8 @@ def _evaluate_candidates(
                 best_result = result
                 best_n_clusters = n_clust
                 best_n_segments = n_seg
-        except Exception as exc:
-            logger.debug(
+        except (ValueError, RuntimeError) as exc:
+            logger.warning(
                 "Config (n_clusters=%d, n_segments=%d) failed: %s",
                 n_clust,
                 n_seg,
