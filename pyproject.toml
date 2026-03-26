@@ -82,4 +82,4 @@ exclude_lines = [
 
 [tool.pytest.ini_options]
 testpaths = ["test"]
-addopts = ["-n", "auto"]
+addopts = ["-n", "auto", "--dist", "loadfile"]
