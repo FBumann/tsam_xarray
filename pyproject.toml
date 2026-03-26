@@ -23,6 +23,9 @@ dependencies = [
     "xarray>=2024.1",
 ]
 
+[project.optional-dependencies]
+plot = ["plotly>=5"]
+
 [dependency-groups]
 docs = [
     "mkdocs>=1,<2",
