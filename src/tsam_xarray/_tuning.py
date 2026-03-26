@@ -139,7 +139,7 @@ def find_optimal_combination(
 
     for n_clust, n_seg in iterator:
         try:
-            seg_config = SegmentConfig(n_segments=n_seg) if n_seg > 1 else None
+            seg_config = SegmentConfig(n_segments=n_seg)
             result = aggregate(
                 da,
                 time_dim=time_dim,
@@ -247,14 +247,17 @@ def find_pareto_front(
     else:
         period_hours = float(period_duration)
     n_timesteps_per_period = int(period_hours / dt_hours)
+    n_periods = len(time_coords) // n_timesteps_per_period
 
     if max_timesteps is None:
         max_timesteps = n_timesteps_per_period
 
     # Generate grid of candidates
+    # Cap n_clusters at n_periods - 1 (n_periods = trivial perfect fit)
+    max_clusters = n_periods - 1
     candidates: list[tuple[int, int]] = []
     for n_seg in range(1, n_timesteps_per_period + 1):
-        for n_clust in range(2, max_timesteps // n_seg + 1):
+        for n_clust in range(2, min(max_clusters, max_timesteps // n_seg) + 1):
             if n_clust * n_seg <= max_timesteps:
                 candidates.append((n_clust, n_seg))
 
@@ -281,7 +284,7 @@ def find_pareto_front(
 
     for n_clust, n_seg in iterator:
         try:
-            seg_config = SegmentConfig(n_segments=n_seg) if n_seg > 1 else None
+            seg_config = SegmentConfig(n_segments=n_seg)
             result = aggregate(
                 da,
                 time_dim=time_dim,
