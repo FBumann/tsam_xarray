@@ -219,12 +219,15 @@ class TuningResult:
         return fig
 
     def __len__(self) -> int:
+        self._require_all_results()
         return len(self.all_results)
 
     def __getitem__(self, index: int) -> AggregationResult:
+        self._require_all_results()
         return self.all_results[index]
 
     def __iter__(self) -> Any:
+        self._require_all_results()
         return iter(self.all_results)
 
 
@@ -402,11 +405,13 @@ def find_optimal_combination(
     )
 
     # Generate candidates: for each segment count, max clusters that fits
+    seen: set[tuple[int, int]] = set()
     candidates: list[tuple[int, int]] = []
     for n_seg in range(1, n_timesteps_per_period + 1):
         n_clust = find_clusters_for_reduction(n_timesteps, n_seg, data_reduction)
-        if n_clust >= 2:
+        if n_clust >= 2 and (n_clust, n_seg) not in seen:
             candidates.append((n_clust, n_seg))
+            seen.add((n_clust, n_seg))
 
     if not candidates:
         msg = (
