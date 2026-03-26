@@ -157,6 +157,60 @@ class TestFindOptimalCombination:
             )
 
 
+class TestFindBestCombination:
+    def test_basic(self):
+        da = _make_da()
+        result = tsam_xarray.find_best_combination(
+            da,
+            time_dim="time",
+            cluster_dim="variable",
+            max_timesteps=48,
+            show_progress=False,
+        )
+        assert result.n_clusters >= 2
+        assert result.n_segments >= 1
+        assert result.rmse > 0
+        assert result.best_result is not None
+
+    def test_history_is_unfiltered(self):
+        """History should contain all tested combos, not just Pareto front."""
+        da = _make_da()
+        grid = tsam_xarray.find_best_combination(
+            da,
+            time_dim="time",
+            cluster_dim="variable",
+            max_timesteps=48,
+            show_progress=False,
+        )
+        pareto = tsam_xarray.find_pareto_front(
+            da,
+            time_dim="time",
+            cluster_dim="variable",
+            max_timesteps=48,
+            show_progress=False,
+        )
+        assert len(grid.history) >= len(pareto.history)
+
+    def test_best_matches_pareto_best(self):
+        """Grid search best should equal Pareto front best."""
+        da = _make_da()
+        grid = tsam_xarray.find_best_combination(
+            da,
+            time_dim="time",
+            cluster_dim="variable",
+            max_timesteps=48,
+            show_progress=False,
+        )
+        pareto = tsam_xarray.find_pareto_front(
+            da,
+            time_dim="time",
+            cluster_dim="variable",
+            max_timesteps=48,
+            show_progress=False,
+        )
+        np.testing.assert_allclose(grid.rmse, pareto.rmse)
+
+
 class TestFindParetoFront:
     def test_basic(self):
         da = _make_da()

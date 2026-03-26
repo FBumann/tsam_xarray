@@ -130,8 +130,15 @@ class TuningResult:
         return self.all_results[candidates[0][1]]
 
     def plot(self, show_labels: bool = True, **kwargs: Any) -> Any:
-        """Plot RMSE vs timesteps."""
-        import plotly.graph_objects as go
+        """Plot RMSE vs timesteps.
+
+        Requires ``plotly`` (``pip install plotly``).
+        """
+        try:
+            import plotly.graph_objects as go
+        except ImportError as exc:
+            msg = "plotly is required for plot(): pip install plotly"
+            raise ImportError(msg) from exc
 
         summary = self.summary
         hover_text = [
@@ -387,6 +394,100 @@ def find_optimal_combination(
     )
 
 
+def find_best_combination(
+    da: Any,
+    *,
+    time_dim: str,
+    cluster_dim: Sequence[str] | str,
+    max_timesteps: int | None = None,
+    weights: Weights = None,
+    period_duration: int | float | str = 24,
+    show_progress: bool = True,
+    save_all_results: bool = False,
+    **tsam_kwargs: Any,
+) -> TuningResult:
+    """Full grid search for the best (n_clusters, n_segments) combination.
+
+    Tests all valid (n_clusters, n_segments) pairs up to
+    ``max_timesteps`` and returns the one with the lowest overall
+    RMSE.  The complete unfiltered ``history`` is preserved.
+
+    Parameters
+    ----------
+    da : xr.DataArray
+        Input data.
+    time_dim : str
+        Name of the time dimension.
+    cluster_dim : Sequence[str] | str
+        Dimension(s) to cluster together.
+    max_timesteps : int | None
+        Maximum total timesteps to test (n_clusters * n_segments).
+        Defaults to total number of timesteps in the data.
+    weights : dict | None
+        Per-coordinate weights for clustering and RMSE evaluation.
+    period_duration : int | float | str
+        Hours per period (default: 24).
+    show_progress : bool
+        Show progress bar.
+    save_all_results : bool
+        Keep all AggregationResults (memory-intensive).
+    **tsam_kwargs
+        Additional keyword arguments passed to ``tsam.aggregate()``.
+
+    Returns
+    -------
+    TuningResult
+        Best combination with lowest overall RMSE and full history.
+    """
+    n_timesteps_per_period, n_periods, n_timesteps = _infer_time_params(
+        da, time_dim, period_duration
+    )
+
+    if max_timesteps is None:
+        max_timesteps = n_timesteps
+
+    # Generate grid of candidates
+    # Cap n_clusters at n_periods - 1 (n_periods = trivial perfect fit)
+    max_clusters = n_periods - 1
+    candidates: list[tuple[int, int]] = []
+    for n_seg in range(1, n_timesteps_per_period + 1):
+        for n_clust in range(2, min(max_clusters, max_timesteps // n_seg) + 1):
+            if n_clust * n_seg <= max_timesteps:
+                candidates.append((n_clust, n_seg))
+
+    if not candidates:
+        msg = f"No valid combinations for max_timesteps={max_timesteps}"
+        raise ValueError(msg)
+
+    history, all_results, best_rmse, best_result, best_nc, best_ns = (
+        _evaluate_candidates(
+            candidates,
+            da,
+            time_dim=time_dim,
+            cluster_dim=cluster_dim,
+            weights=weights,
+            period_duration=period_duration,
+            show_progress=show_progress,
+            progress_desc="Grid search",
+            save_all_results=save_all_results,
+            tsam_kwargs=tsam_kwargs,
+        )
+    )
+
+    if best_result is None:
+        msg = "All configurations failed"
+        raise RuntimeError(msg)
+
+    return TuningResult(
+        n_clusters=best_nc,
+        n_segments=best_ns,
+        rmse=best_rmse,
+        best_result=best_result,
+        history=history,
+        all_results=all_results,
+    )
+
+
 def find_pareto_front(
     da: Any,
     *,
@@ -401,13 +502,9 @@ def find_pareto_front(
 ) -> TuningResult:
     """Find the Pareto-optimal configurations (RMSE vs complexity).
 
-    Tests a grid of (n_clusters, n_segments) combinations and returns
-    the Pareto frontier — configurations where no other tested combo
-    has both lower RMSE and fewer timesteps.
-
-    The returned ``history`` contains only Pareto-optimal points.
-    Use ``save_all_results=True`` to iterate over all corresponding
-    ``AggregationResult`` objects.
+    Runs the same grid search as :func:`find_best_combination` but
+    filters the results to the Pareto frontier — configurations where
+    no other tested combo has both lower RMSE and fewer timesteps.
 
     Parameters
     ----------
@@ -436,60 +533,37 @@ def find_pareto_front(
     TuningResult
         Pareto-optimal result with lowest RMSE on the frontier.
     """
-    n_timesteps_per_period, n_periods, n_timesteps = _infer_time_params(
-        da, time_dim, period_duration
+    grid = find_best_combination(
+        da,
+        time_dim=time_dim,
+        cluster_dim=cluster_dim,
+        max_timesteps=max_timesteps,
+        weights=weights,
+        period_duration=period_duration,
+        show_progress=show_progress,
+        save_all_results=save_all_results,
+        **tsam_kwargs,
     )
 
-    if max_timesteps is None:
-        max_timesteps = n_timesteps
+    pareto_history, pareto_results = _pareto_filter(grid.history, grid.all_results)
 
-    # Generate grid of candidates
-    # Cap n_clusters at n_periods - 1 (n_periods = trivial perfect fit)
-    max_clusters = n_periods - 1
-    candidates: list[tuple[int, int]] = []
-    for n_seg in range(1, n_timesteps_per_period + 1):
-        for n_clust in range(2, min(max_clusters, max_timesteps // n_seg) + 1):
-            if n_clust * n_seg <= max_timesteps:
-                candidates.append((n_clust, n_seg))
-
-    if not candidates:
-        msg = f"No valid combinations for max_timesteps={max_timesteps}"
-        raise ValueError(msg)
-
-    # Evaluate all candidates
-    history, all_results, _best_rmse, _best_result, _best_nc, _best_ns = (
-        _evaluate_candidates(
-            candidates,
-            da,
-            time_dim=time_dim,
-            cluster_dim=cluster_dim,
-            weights=weights,
-            period_duration=period_duration,
-            show_progress=show_progress,
-            progress_desc="Pareto front",
-            save_all_results=save_all_results,
-            tsam_kwargs=tsam_kwargs,
-        )
+    # Best on Pareto front = lowest RMSE (last entry when sorted
+    # by ascending timesteps / descending RMSE).
+    best_idx = min(
+        range(len(pareto_history)),
+        key=lambda i: pareto_history[i]["rmse"],
     )
-
-    if not history:
-        msg = "All configurations failed"
-        raise RuntimeError(msg)
-
-    # Filter to Pareto front: no other point has both fewer timesteps AND lower RMSE
-    pareto_history, pareto_results = _pareto_filter(history, all_results)
-
-    # Best on Pareto front = lowest RMSE
-    best_idx = min(range(len(pareto_history)), key=lambda i: pareto_history[i]["rmse"])
     best_h = pareto_history[best_idx]
 
-    # We need the actual AggregationResult for the best point.
-    # If save_all_results is True, it's in pareto_results.
-    # Otherwise, re-run the best config.
-    if pareto_results:
+    # Reuse the best_result from the grid search when it matches.
+    if (
+        best_h["n_clusters"] == grid.n_clusters
+        and best_h["n_segments"] == grid.n_segments
+    ):
+        best_result = grid.best_result
+    elif pareto_results:
         best_result = pareto_results[best_idx]
     else:
-        # Re-run best config to get the AggregationResult
         seg_config = SegmentConfig(n_segments=best_h["n_segments"])
         best_result = aggregate(
             da,
