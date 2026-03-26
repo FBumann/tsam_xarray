@@ -45,6 +45,9 @@ class TuningResult:
     best_result: AggregationResult
     history: list[dict[str, Any]] = field(repr=False)
     all_results: list[AggregationResult] = field(default_factory=list, repr=False)
+    _cache: dict[str, Any] = field(
+        default_factory=dict, repr=False, init=False, compare=False
+    )
 
     @property
     def summary(self) -> Any:
@@ -65,24 +68,75 @@ class TuningResult:
         df = pd.DataFrame(self.history)
         return df.set_index(["n_clusters", "n_segments"]).to_xarray()
 
-    def find_by_timesteps(self, target: int) -> AggregationResult:
-        """Find the result closest to a target timestep count.
-
-        Requires ``save_all_results=True`` when calling the tuning function.
-        """
+    def _require_all_results(self) -> None:
         if not self.all_results:
             msg = (
-                "No results available. Use save_all_results=True in "
-                "the tuning function."
+                "No results available. Use save_all_results=True "
+                "in the tuning function."
             )
             raise ValueError(msg)
         if len(self.all_results) != len(self.history):
             msg = (
-                f"Results/history mismatch: {len(self.all_results)} results "
+                f"Results/history mismatch: "
+                f"{len(self.all_results)} results "
                 f"vs {len(self.history)} history entries."
             )
             raise ValueError(msg)
 
+    @property
+    def reconstructed(self) -> Any:
+        """Reconstructed time series for each tested config.
+
+        Lazy and cached.  Returns an xarray DataArray with the
+        original dimensions plus ``(n_clusters, n_segments)``.
+        NaN where a combination was not tested.
+
+        Requires ``save_all_results=True``.
+        """
+        if "reconstructed" not in self._cache:
+            self._require_all_results()
+            import xarray as xr
+
+            arrays = []
+            for h, res in zip(self.history, self.all_results, strict=True):
+                arr = res.reconstructed.expand_dims(
+                    n_clusters=[h["n_clusters"]],
+                    n_segments=[h["n_segments"]],
+                )
+                arrays.append(arr)
+            self._cache["reconstructed"] = xr.combine_by_coords(arrays, join="outer")
+        return self._cache["reconstructed"]
+
+    @property
+    def accuracy(self) -> Any:
+        """Per-column RMSE for each tested config.
+
+        Lazy and cached.  Returns an xarray DataArray with the
+        cluster dimensions plus ``(n_clusters, n_segments)``.
+        NaN where a combination was not tested.
+
+        Requires ``save_all_results=True``.
+        """
+        if "accuracy" not in self._cache:
+            self._require_all_results()
+            import xarray as xr
+
+            arrays = []
+            for h, res in zip(self.history, self.all_results, strict=True):
+                arr = res.accuracy.rmse.expand_dims(
+                    n_clusters=[h["n_clusters"]],
+                    n_segments=[h["n_segments"]],
+                )
+                arrays.append(arr)
+            self._cache["accuracy"] = xr.combine_by_coords(arrays, join="outer")
+        return self._cache["accuracy"]
+
+    def find_by_timesteps(self, target: int) -> AggregationResult:
+        """Find the result closest to a target timestep count.
+
+        Requires ``save_all_results=True``.
+        """
+        self._require_all_results()
         best_idx = 0
         best_diff = float("inf")
         for i, h in enumerate(self.history):
@@ -98,21 +152,9 @@ class TuningResult:
         Returns the configuration with the fewest timesteps whose RMSE
         is at or below ``threshold``.
 
-        Requires ``save_all_results=True`` when calling the tuning function.
+        Requires ``save_all_results=True``.
         """
-        if not self.all_results:
-            msg = (
-                "No results available. Use save_all_results=True in "
-                "the tuning function."
-            )
-            raise ValueError(msg)
-        if len(self.all_results) != len(self.history):
-            msg = (
-                f"Results/history mismatch: {len(self.all_results)} results "
-                f"vs {len(self.history)} history entries."
-            )
-            raise ValueError(msg)
-
+        self._require_all_results()
         candidates: list[tuple[int, int]] = []  # (timesteps, index)
         for i, h in enumerate(self.history):
             if h["rmse"] <= threshold:

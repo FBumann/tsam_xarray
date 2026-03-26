@@ -321,3 +321,34 @@ class TestTuningResult:
         if len(result_with_all) > 0:
             agg = result_with_all[0]
             assert agg is not None
+
+    def test_reconstructed_shape(self, result_with_all):
+        rec = result_with_all.reconstructed
+        assert "n_clusters" in rec.dims
+        assert "n_segments" in rec.dims
+        assert "time" in rec.dims
+        assert "variable" in rec.dims
+
+    def test_reconstructed_cached(self, result_with_all):
+        rec1 = result_with_all.reconstructed
+        rec2 = result_with_all.reconstructed
+        assert rec1 is rec2
+
+    def test_reconstructed_requires_all_results(self, result_without_all):
+        with pytest.raises(ValueError, match="No results available"):
+            _ = result_without_all.reconstructed
+
+    def test_accuracy_shape(self, result_with_all):
+        acc = result_with_all.accuracy
+        assert "n_clusters" in acc.dims
+        assert "n_segments" in acc.dims
+        assert "variable" in acc.dims
+
+    def test_accuracy_cached(self, result_with_all):
+        acc1 = result_with_all.accuracy
+        acc2 = result_with_all.accuracy
+        assert acc1 is acc2
+
+    def test_accuracy_requires_all_results(self, result_without_all):
+        with pytest.raises(ValueError, match="No results available"):
+            _ = result_without_all.accuracy
