@@ -23,6 +23,9 @@ dependencies = [
     "xarray>=2024.1",
 ]
 
+[project.optional-dependencies]
+plot = ["plotly>=5"]
+
 [dependency-groups]
 docs = [
     "mkdocs>=1,<2",
@@ -64,7 +67,7 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 strict = true
 
 [[tool.mypy.overrides]]
-module = ["tsam.*", "xarray.*", "numpy.*"]
+module = ["tsam.*", "xarray.*", "numpy.*", "tqdm.*", "plotly.*"]
 ignore_missing_imports = true
 
 [tool.coverage.run]

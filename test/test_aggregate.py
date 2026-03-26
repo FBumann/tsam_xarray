@@ -420,6 +420,7 @@ class TestValidation:
                 cluster_dim=["time", "variable"],
             )
 
+    @pytest.mark.filterwarnings("ignore::DeprecationWarning")
     def test_cluster_config_weights_rejected(self):
         """ClusterConfig.weights is deprecated and not supported."""
         from tsam import ClusterConfig
