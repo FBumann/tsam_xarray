@@ -34,6 +34,19 @@ class TuningResult:
 
         return pd.DataFrame(self.history).sort_values("rmse")
 
+    @property
+    def summary_matrix(self) -> Any:
+        """Metrics as Dataset with ``(n_clusters, n_segments)`` dims.
+
+        Contains ``rmse`` and ``timesteps`` as variables.
+        NaN where a combination was not tested or failed.
+        """
+        import pandas as pd
+
+        df = pd.DataFrame(self.history)
+        df = df.replace(float("inf"), float("nan"))
+        return df.set_index(["n_clusters", "n_segments"]).to_xarray()
+
 
 def find_optimal_combination(
     da: Any,
@@ -118,7 +131,7 @@ def find_optimal_combination(
     iterator: Any = candidates
     if show_progress:
         try:
-            import tqdm  # type: ignore[import-untyped]
+            import tqdm
 
             iterator = tqdm.tqdm(candidates, desc="Testing configurations")
         except ImportError:
@@ -174,6 +187,148 @@ def find_optimal_combination(
         best_result=best_result,
         history=history,
         all_results=all_results,
+    )
+
+
+def find_pareto_front(
+    da: Any,
+    *,
+    time_dim: str,
+    cluster_dim: Sequence[str] | str,
+    max_timesteps: int | None = None,
+    weights: Weights = None,
+    period_duration: int | float | str = 24,
+    show_progress: bool = True,
+    save_all_results: bool = False,
+    **tsam_kwargs: Any,
+) -> TuningResult:
+    """Find the Pareto-optimal configurations (RMSE vs complexity).
+
+    Tests a grid of (n_clusters, n_segments) combinations and returns
+    the Pareto frontier — configurations where no other tested combo
+    has both lower RMSE and fewer timesteps.
+
+    Parameters
+    ----------
+    da : xr.DataArray
+        Input data.
+    time_dim : str
+        Name of the time dimension.
+    cluster_dim : Sequence[str] | str
+        Dimension(s) to cluster together.
+    max_timesteps : int | None
+        Maximum total timesteps to test (n_clusters * n_segments).
+        Defaults to n_timesteps_per_period (full resolution).
+    weights : dict | None
+        Per-coordinate weights for clustering and RMSE evaluation.
+    period_duration : int | float | str
+        Hours per period (default: 24).
+    show_progress : bool
+        Show progress bar.
+    save_all_results : bool
+        Keep all AggregationResults (memory-intensive).
+    **tsam_kwargs
+        Additional keyword arguments passed to ``tsam.aggregate()``.
+
+    Returns
+    -------
+    TuningResult
+        Pareto-optimal result with lowest RMSE on the frontier.
+    """
+    time_coords = da.coords[time_dim].values
+    if len(time_coords) < 2:
+        msg = "Need at least 2 timesteps"
+        raise ValueError(msg)
+    dt_hours = float(np.diff(time_coords[:2])[0] / np.timedelta64(1, "h"))
+    if isinstance(period_duration, str):
+        import pandas as pd
+
+        period_hours = pd.Timedelta(period_duration).total_seconds() / 3600
+    else:
+        period_hours = float(period_duration)
+    n_timesteps_per_period = int(period_hours / dt_hours)
+
+    if max_timesteps is None:
+        max_timesteps = n_timesteps_per_period
+
+    # Generate grid of candidates
+    candidates: list[tuple[int, int]] = []
+    for n_seg in range(1, n_timesteps_per_period + 1):
+        for n_clust in range(2, max_timesteps // n_seg + 1):
+            if n_clust * n_seg <= max_timesteps:
+                candidates.append((n_clust, n_seg))
+
+    if not candidates:
+        msg = f"No valid combinations for max_timesteps={max_timesteps}"
+        raise ValueError(msg)
+
+    # Evaluate (reuse find_optimal_combination's loop logic)
+    history: list[dict[str, Any]] = []
+    all_results_list: list[AggregationResult] = []
+    best_rmse = float("inf")
+    best_result: AggregationResult | None = None
+    best_n_clusters = 0
+    best_n_segments = 0
+
+    iterator: Any = candidates
+    if show_progress:
+        try:
+            import tqdm
+
+            iterator = tqdm.tqdm(candidates, desc="Pareto front")
+        except ImportError:
+            pass
+
+    for n_clust, n_seg in iterator:
+        try:
+            seg_config = SegmentConfig(n_segments=n_seg) if n_seg > 1 else None
+            result = aggregate(
+                da,
+                time_dim=time_dim,
+                cluster_dim=cluster_dim,
+                n_clusters=n_clust,
+                weights=weights,
+                segments=seg_config,
+                period_duration=period_duration,
+                **tsam_kwargs,
+            )
+            rmse = _compute_overall_rmse(result, weights, cluster_dim)
+            history.append(
+                {
+                    "n_clusters": n_clust,
+                    "n_segments": n_seg,
+                    "rmse": rmse,
+                    "timesteps": n_clust * n_seg,
+                }
+            )
+            if save_all_results:
+                all_results_list.append(result)
+            if rmse < best_rmse:
+                best_rmse = rmse
+                best_result = result
+                best_n_clusters = n_clust
+                best_n_segments = n_seg
+        except Exception:
+            history.append(
+                {
+                    "n_clusters": n_clust,
+                    "n_segments": n_seg,
+                    "rmse": float("inf"),
+                    "timesteps": n_clust * n_seg,
+                }
+            )
+
+    if best_result is None:
+        msg = "All configurations failed"
+        raise RuntimeError(msg)
+
+    return TuningResult(
+        n_clusters=best_n_clusters,
+        n_segments=best_n_segments,
+        rmse=best_rmse,
+        best_result=best_result,
+        history=history,
+        all_results=all_results_list,
     )
 
 

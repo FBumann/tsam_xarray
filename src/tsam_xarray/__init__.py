@@ -3,7 +3,11 @@
 from tsam_xarray._clustering import ClusteringInfo
 from tsam_xarray._core import aggregate
 from tsam_xarray._result import AccuracyMetrics, AggregationResult
-from tsam_xarray._tuning import TuningResult, find_optimal_combination
+from tsam_xarray._tuning import (
+    TuningResult,
+    find_optimal_combination,
+    find_pareto_front,
+)
 
 load_clustering = ClusteringInfo.from_json
 
@@ -14,5 +18,6 @@ __all__ = [
     "TuningResult",
     "aggregate",
     "find_optimal_combination",
+    "find_pareto_front",
     "load_clustering",
 ]
