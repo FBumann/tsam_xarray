@@ -52,6 +52,7 @@ nav:
     - Multi-Dimensional Data: examples/multi-dim.ipynb
     - Segmentation: examples/segmentation.ipynb
     - Clustering IO: examples/clustering-io.ipynb
+    - Tuning: examples/tuning.ipynb
   - API Reference: api/
 
 exclude_docs: |
