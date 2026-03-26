@@ -370,7 +370,7 @@ def find_optimal_combination(
     weights: Weights = None,
     period_duration: int | float | str = 24,
     show_progress: bool = True,
-    save_all_results: bool = False,
+    save_all_results: bool = True,
     **tsam_kwargs: Any,
 ) -> TuningResult:
     """Find optimal n_clusters/n_segments for a target data reduction.
@@ -462,7 +462,7 @@ def find_best_combination(
     weights: Weights = None,
     period_duration: int | float | str = 24,
     show_progress: bool = True,
-    save_all_results: bool = False,
+    save_all_results: bool = True,
     **tsam_kwargs: Any,
 ) -> TuningResult:
     """Full grid search for the best (n_clusters, n_segments) combination.
@@ -556,7 +556,7 @@ def find_pareto_front(
     weights: Weights = None,
     period_duration: int | float | str = 24,
     show_progress: bool = True,
-    save_all_results: bool = False,
+    save_all_results: bool = True,
     **tsam_kwargs: Any,
 ) -> TuningResult:
     """Find the Pareto-optimal configurations (RMSE vs complexity).

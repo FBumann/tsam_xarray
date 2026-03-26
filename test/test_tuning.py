@@ -292,6 +292,7 @@ class TestTuningResult:
             cluster_dim="variable",
             data_reduction=0.05,
             show_progress=False,
+            save_all_results=False,
         )
 
     def test_find_by_timesteps(self, result_with_all):
