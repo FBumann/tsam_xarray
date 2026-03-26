@@ -1,4 +1,4 @@
-"""Tests for tsam_xarray.find_optimal_combination()."""
+"""Tests for tsam_xarray tuning functions."""
 
 from __future__ import annotations
 
@@ -61,6 +61,18 @@ class TestFindOptimalCombination:
         assert all("n_clusters" in h for h in result.history)
         assert all("n_segments" in h for h in result.history)
 
+    def test_history_has_no_inf(self):
+        """Failed configs should not appear in history (matches tsam)."""
+        da = _make_da()
+        result = tsam_xarray.find_optimal_combination(
+            da,
+            time_dim="time",
+            cluster_dim="variable",
+            data_reduction=0.05,
+            show_progress=False,
+        )
+        assert all(np.isfinite(h["rmse"]) for h in result.history)
+
     def test_best_is_lowest_rmse(self):
         da = _make_da()
         result = tsam_xarray.find_optimal_combination(
@@ -70,8 +82,7 @@ class TestFindOptimalCombination:
             data_reduction=0.05,
             show_progress=False,
         )
-        valid = [h for h in result.history if h["rmse"] < float("inf")]
-        min_rmse = min(h["rmse"] for h in valid)
+        min_rmse = min(h["rmse"] for h in result.history)
         np.testing.assert_allclose(result.rmse, min_rmse)
 
     def test_multi_dim_sliced(self):
@@ -144,3 +155,115 @@ class TestFindOptimalCombination:
                 data_reduction=0.0001,
                 show_progress=False,
             )
+
+
+class TestFindParetoFront:
+    def test_basic(self):
+        da = _make_da()
+        result = tsam_xarray.find_pareto_front(
+            da,
+            time_dim="time",
+            cluster_dim="variable",
+            max_timesteps=48,
+            show_progress=False,
+        )
+        assert result.n_clusters >= 2
+        assert result.n_segments >= 1
+        assert result.rmse > 0
+        assert result.best_result is not None
+
+    def test_pareto_front_is_non_dominated(self):
+        """History should only contain Pareto-optimal points."""
+        da = _make_da()
+        result = tsam_xarray.find_pareto_front(
+            da,
+            time_dim="time",
+            cluster_dim="variable",
+            max_timesteps=48,
+            show_progress=False,
+        )
+        # Pareto property: sorted by timesteps, RMSE must be strictly decreasing
+        sorted_h = sorted(result.history, key=lambda h: h["timesteps"])
+        for i in range(1, len(sorted_h)):
+            assert sorted_h[i]["rmse"] < sorted_h[i - 1]["rmse"], (
+                f"Pareto violation: timesteps {sorted_h[i]['timesteps']} has "
+                f"RMSE {sorted_h[i]['rmse']} >= {sorted_h[i - 1]['rmse']}"
+            )
+
+    def test_history_has_no_inf(self):
+        da = _make_da()
+        result = tsam_xarray.find_pareto_front(
+            da,
+            time_dim="time",
+            cluster_dim="variable",
+            max_timesteps=48,
+            show_progress=False,
+        )
+        assert all(np.isfinite(h["rmse"]) for h in result.history)
+
+    def test_summary_matrix(self):
+        da = _make_da()
+        result = tsam_xarray.find_pareto_front(
+            da,
+            time_dim="time",
+            cluster_dim="variable",
+            max_timesteps=48,
+            show_progress=False,
+        )
+        matrix = result.summary_matrix
+        assert "rmse" in matrix
+        assert "n_clusters" in matrix.dims
+        assert "n_segments" in matrix.dims
+
+
+class TestTuningResult:
+    @pytest.fixture()
+    def result_with_all(self):
+        da = _make_da()
+        return tsam_xarray.find_optimal_combination(
+            da,
+            time_dim="time",
+            cluster_dim="variable",
+            data_reduction=0.05,
+            show_progress=False,
+            save_all_results=True,
+        )
+
+    @pytest.fixture()
+    def result_without_all(self):
+        da = _make_da()
+        return tsam_xarray.find_optimal_combination(
+            da,
+            time_dim="time",
+            cluster_dim="variable",
+            data_reduction=0.05,
+            show_progress=False,
+        )
+
+    def test_find_by_timesteps(self, result_with_all):
+        target = result_with_all.history[0]["timesteps"]
+        agg = result_with_all.find_by_timesteps(target)
+        assert agg is not None
+
+    def test_find_by_timesteps_no_results(self, result_without_all):
+        with pytest.raises(ValueError, match="No results available"):
+            result_without_all.find_by_timesteps(10)
+
+    def test_find_by_rmse(self, result_with_all):
+        threshold = max(h["rmse"] for h in result_with_all.history)
+        agg = result_with_all.find_by_rmse(threshold)
+        assert agg is not None
+
+    def test_find_by_rmse_impossible(self, result_with_all):
+        with pytest.raises(ValueError, match="No configuration achieves"):
+            result_with_all.find_by_rmse(0.0)
+
+    def test_len_and_iter(self, result_with_all):
+        assert len(result_with_all) == len(result_with_all.history)
+        results_list = list(result_with_all)
+        assert len(results_list) == len(result_with_all)
+
+    def test_getitem(self, result_with_all):
+        if len(result_with_all) > 0:
+            agg = result_with_all[0]
+            assert agg is not None
