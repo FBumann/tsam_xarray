@@ -8,10 +8,7 @@
       "package-name": "tsam_xarray",
       "bump-minor-for-major-pre-major": true,
       "bump-patch-for-minor-pre-major": true,
-      "changelog-path": "CHANGELOG.md",
-      "prerelease": true,
-      "prerelease-type": "alpha",
-      "initial-version": "0.0.1-alpha.0"
+      "changelog-path": "CHANGELOG.md"
     }
   }
 }
