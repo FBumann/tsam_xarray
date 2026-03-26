@@ -64,7 +64,7 @@ jobs:
         run: uv sync --group dev
 
       - name: Run tests
-        run: uv run pytest --cov=src/tsam_xarray --cov-report=xml --cov-report=term-missing
+        run: uv run pytest -n auto --cov=src/tsam_xarray --cov-report=xml --cov-report=term-missing
 
       - uses: codecov/codecov-action@v5
         if: matrix.python-version == '3.12'
