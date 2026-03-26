@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.0-alpha.0](https://github.com/FBumann/tsam_xarray/compare/v0.0.4-alpha.0...v1.0.0-alpha.0) (2026-03-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* find_optimal_combination with cross-slice RMSE ([#50](https://github.com/FBumann/tsam_xarray/issues/50))
+
+### Features
+
+* find_optimal_combination with cross-slice RMSE ([#50](https://github.com/FBumann/tsam_xarray/issues/50)) ([ae4f281](https://github.com/FBumann/tsam_xarray/commit/ae4f281ada28a01b8d8d3a3be759658b98bd7ede))
+
 ## [0.0.4-alpha.0](https://github.com/FBumann/tsam_xarray/compare/v0.0.3-alpha.0...v0.0.4-alpha.0) (2026-03-25)
 
 
