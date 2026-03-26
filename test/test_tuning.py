@@ -32,58 +32,64 @@ def _make_da(
     return xr.DataArray(rng.random(shape), dims=dims, coords=coords)
 
 
+@pytest.fixture(scope="module")
+def da() -> xr.DataArray:
+    return _make_da()
+
+
+@pytest.fixture(scope="module")
+def optimal_result(da):
+    return tsam_xarray.find_optimal_combination(
+        da,
+        time_dim="time",
+        cluster_dim="variable",
+        data_reduction=0.05,
+        show_progress=False,
+    )
+
+
+@pytest.fixture(scope="module")
+def grid_result(da):
+    return tsam_xarray.find_best_combination(
+        da,
+        time_dim="time",
+        cluster_dim="variable",
+        max_timesteps=48,
+        show_progress=False,
+    )
+
+
+@pytest.fixture(scope="module")
+def pareto_result(da):
+    return tsam_xarray.find_pareto_front(
+        da,
+        time_dim="time",
+        cluster_dim="variable",
+        max_timesteps=48,
+        show_progress=False,
+    )
+
+
 class TestFindOptimalCombination:
-    def test_basic(self):
-        da = _make_da()
-        result = tsam_xarray.find_optimal_combination(
-            da,
-            time_dim="time",
-            cluster_dim="variable",
-            data_reduction=0.05,
-            show_progress=False,
-        )
-        assert result.n_clusters >= 2
-        assert result.n_segments >= 1
-        assert result.rmse > 0
-        assert result.best_result is not None
+    def test_basic(self, optimal_result):
+        assert optimal_result.n_clusters >= 2
+        assert optimal_result.n_segments >= 1
+        assert optimal_result.rmse > 0
+        assert optimal_result.best_result is not None
 
-    def test_history_populated(self):
-        da = _make_da()
-        result = tsam_xarray.find_optimal_combination(
-            da,
-            time_dim="time",
-            cluster_dim="variable",
-            data_reduction=0.05,
-            show_progress=False,
-        )
-        assert len(result.history) > 0
-        assert all("rmse" in h for h in result.history)
-        assert all("n_clusters" in h for h in result.history)
-        assert all("n_segments" in h for h in result.history)
+    def test_history_populated(self, optimal_result):
+        assert len(optimal_result.history) > 0
+        assert all("rmse" in h for h in optimal_result.history)
+        assert all("n_clusters" in h for h in optimal_result.history)
+        assert all("n_segments" in h for h in optimal_result.history)
 
-    def test_history_has_no_inf(self):
+    def test_history_has_no_inf(self, optimal_result):
         """Failed configs should not appear in history (matches tsam)."""
-        da = _make_da()
-        result = tsam_xarray.find_optimal_combination(
-            da,
-            time_dim="time",
-            cluster_dim="variable",
-            data_reduction=0.05,
-            show_progress=False,
-        )
-        assert all(np.isfinite(h["rmse"]) for h in result.history)
+        assert all(np.isfinite(h["rmse"]) for h in optimal_result.history)
 
-    def test_best_is_lowest_rmse(self):
-        da = _make_da()
-        result = tsam_xarray.find_optimal_combination(
-            da,
-            time_dim="time",
-            cluster_dim="variable",
-            data_reduction=0.05,
-            show_progress=False,
-        )
-        min_rmse = min(h["rmse"] for h in result.history)
-        np.testing.assert_allclose(result.rmse, min_rmse)
+    def test_best_is_lowest_rmse(self, optimal_result):
+        min_rmse = min(h["rmse"] for h in optimal_result.history)
+        np.testing.assert_allclose(optimal_result.rmse, min_rmse)
 
     def test_multi_dim_sliced(self):
         """Tuning works with auto-sliced dims."""
@@ -112,28 +118,12 @@ class TestFindOptimalCombination:
         assert "variable" in result.best_result.cluster_representatives.dims
         assert "region" in result.best_result.cluster_representatives.dims
 
-    def test_summary(self):
-        da = _make_da()
-        result = tsam_xarray.find_optimal_combination(
-            da,
-            time_dim="time",
-            cluster_dim="variable",
-            data_reduction=0.05,
-            show_progress=False,
-        )
-        summary = result.summary
+    def test_summary(self, optimal_result):
+        summary = optimal_result.summary
         assert "rmse" in summary.columns
-        assert len(summary) == len(result.history)
+        assert len(summary) == len(optimal_result.history)
 
-    def test_weights_affect_result(self):
-        da = _make_da()
-        r1 = tsam_xarray.find_optimal_combination(
-            da,
-            time_dim="time",
-            cluster_dim="variable",
-            data_reduction=0.05,
-            show_progress=False,
-        )
+    def test_weights_affect_result(self, da, optimal_result):
         r2 = tsam_xarray.find_optimal_combination(
             da,
             time_dim="time",
@@ -143,10 +133,9 @@ class TestFindOptimalCombination:
             show_progress=False,
         )
         # Weighted should produce different RMSE
-        assert r1.rmse != r2.rmse
+        assert optimal_result.rmse != r2.rmse
 
-    def test_invalid_data_reduction(self):
-        da = _make_da()
+    def test_invalid_data_reduction(self, da):
         with pytest.raises(ValueError, match="No valid"):
             tsam_xarray.find_optimal_combination(
                 da,
@@ -158,120 +147,49 @@ class TestFindOptimalCombination:
 
 
 class TestFindBestCombination:
-    def test_basic(self):
-        da = _make_da()
-        result = tsam_xarray.find_best_combination(
-            da,
-            time_dim="time",
-            cluster_dim="variable",
-            max_timesteps=48,
-            show_progress=False,
-        )
-        assert result.n_clusters >= 2
-        assert result.n_segments >= 1
-        assert result.rmse > 0
-        assert result.best_result is not None
+    def test_basic(self, grid_result):
+        assert grid_result.n_clusters >= 2
+        assert grid_result.n_segments >= 1
+        assert grid_result.rmse > 0
+        assert grid_result.best_result is not None
 
-    def test_history_is_unfiltered(self):
+    def test_history_is_unfiltered(self, grid_result, pareto_result):
         """History should contain all tested combos, not just Pareto front."""
-        da = _make_da()
-        grid = tsam_xarray.find_best_combination(
-            da,
-            time_dim="time",
-            cluster_dim="variable",
-            max_timesteps=48,
-            show_progress=False,
-        )
-        pareto = tsam_xarray.find_pareto_front(
-            da,
-            time_dim="time",
-            cluster_dim="variable",
-            max_timesteps=48,
-            show_progress=False,
-        )
-        assert len(grid.history) >= len(pareto.history)
+        assert len(grid_result.history) >= len(pareto_result.history)
 
-    def test_best_matches_pareto_best(self):
+    def test_best_matches_pareto_best(self, grid_result, pareto_result):
         """Grid search best should equal Pareto front best."""
-        da = _make_da()
-        grid = tsam_xarray.find_best_combination(
-            da,
-            time_dim="time",
-            cluster_dim="variable",
-            max_timesteps=48,
-            show_progress=False,
-        )
-        pareto = tsam_xarray.find_pareto_front(
-            da,
-            time_dim="time",
-            cluster_dim="variable",
-            max_timesteps=48,
-            show_progress=False,
-        )
-        np.testing.assert_allclose(grid.rmse, pareto.rmse)
+        np.testing.assert_allclose(grid_result.rmse, pareto_result.rmse)
 
 
 class TestFindParetoFront:
-    def test_basic(self):
-        da = _make_da()
-        result = tsam_xarray.find_pareto_front(
-            da,
-            time_dim="time",
-            cluster_dim="variable",
-            max_timesteps=48,
-            show_progress=False,
-        )
-        assert result.n_clusters >= 2
-        assert result.n_segments >= 1
-        assert result.rmse > 0
-        assert result.best_result is not None
+    def test_basic(self, pareto_result):
+        assert pareto_result.n_clusters >= 2
+        assert pareto_result.n_segments >= 1
+        assert pareto_result.rmse > 0
+        assert pareto_result.best_result is not None
 
-    def test_pareto_front_is_non_dominated(self):
+    def test_pareto_front_is_non_dominated(self, pareto_result):
         """History should only contain Pareto-optimal points."""
-        da = _make_da()
-        result = tsam_xarray.find_pareto_front(
-            da,
-            time_dim="time",
-            cluster_dim="variable",
-            max_timesteps=48,
-            show_progress=False,
-        )
-        # Pareto property: sorted by timesteps, RMSE must be strictly decreasing
-        sorted_h = sorted(result.history, key=lambda h: h["timesteps"])
+        sorted_h = sorted(pareto_result.history, key=lambda h: h["timesteps"])
         for i in range(1, len(sorted_h)):
             assert sorted_h[i]["rmse"] < sorted_h[i - 1]["rmse"], (
                 f"Pareto violation: timesteps {sorted_h[i]['timesteps']} has "
                 f"RMSE {sorted_h[i]['rmse']} >= {sorted_h[i - 1]['rmse']}"
             )
 
-    def test_history_has_no_inf(self):
-        da = _make_da()
-        result = tsam_xarray.find_pareto_front(
-            da,
-            time_dim="time",
-            cluster_dim="variable",
-            max_timesteps=48,
-            show_progress=False,
-        )
-        assert all(np.isfinite(h["rmse"]) for h in result.history)
+    def test_history_has_no_inf(self, pareto_result):
+        assert all(np.isfinite(h["rmse"]) for h in pareto_result.history)
 
-    def test_summary_matrix(self):
-        da = _make_da()
-        result = tsam_xarray.find_pareto_front(
-            da,
-            time_dim="time",
-            cluster_dim="variable",
-            max_timesteps=48,
-            show_progress=False,
-        )
-        matrix = result.summary_matrix
+    def test_summary_matrix(self, pareto_result):
+        matrix = pareto_result.summary_matrix
         assert "rmse" in matrix
         assert "n_clusters" in matrix.dims
         assert "n_segments" in matrix.dims
 
 
 class TestTuningResult:
-    @pytest.fixture()
+    @pytest.fixture(scope="class")
     def result_with_all(self):
         da = _make_da()
         return tsam_xarray.find_optimal_combination(
@@ -283,7 +201,7 @@ class TestTuningResult:
             save_all_results=True,
         )
 
-    @pytest.fixture()
+    @pytest.fixture(scope="class")
     def result_without_all(self):
         da = _make_da()
         return tsam_xarray.find_optimal_combination(
