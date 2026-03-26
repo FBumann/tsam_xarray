@@ -23,8 +23,9 @@ class TuningResult:
     n_clusters: int
     n_segments: int
     rmse: float
-    best: AggregationResult
+    best_result: AggregationResult
     history: list[dict[str, Any]] = field(repr=False)
+    all_results: list[AggregationResult] = field(default_factory=list, repr=False)
 
     @property
     def summary(self) -> Any:
@@ -43,6 +44,7 @@ def find_optimal_combination(
     weights: Weights = None,
     period_duration: int | float | str = 24,
     show_progress: bool = True,
+    save_all_results: bool = False,
     **tsam_kwargs: Any,
 ) -> TuningResult:
     """Find optimal n_clusters/n_segments for a target data reduction.
@@ -107,6 +109,7 @@ def find_optimal_combination(
 
     # Evaluate each candidate
     history: list[dict[str, Any]] = []
+    all_results: list[AggregationResult] = []
     best_rmse = float("inf")
     best_result: AggregationResult | None = None
     best_n_clusters = 0
@@ -143,6 +146,8 @@ def find_optimal_combination(
                     "timesteps": n_clust * n_seg,
                 }
             )
+            if save_all_results:
+                all_results.append(result)
             if rmse < best_rmse:
                 best_rmse = rmse
                 best_result = result
@@ -166,8 +171,9 @@ def find_optimal_combination(
         n_clusters=best_n_clusters,
         n_segments=best_n_segments,
         rmse=best_rmse,
-        best=best_result,
+        best_result=best_result,
         history=history,
+        all_results=all_results,
     )
 
 

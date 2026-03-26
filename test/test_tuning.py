@@ -45,7 +45,7 @@ class TestFindOptimalCombination:
         assert result.n_clusters >= 2
         assert result.n_segments >= 1
         assert result.rmse > 0
-        assert result.best is not None
+        assert result.best_result is not None
 
     def test_history_populated(self):
         da = _make_da()
@@ -85,7 +85,7 @@ class TestFindOptimalCombination:
             show_progress=False,
         )
         assert result.n_clusters >= 2
-        assert "scenario" in result.best.cluster_representatives.dims
+        assert "scenario" in result.best_result.cluster_representatives.dims
 
     def test_multi_cluster_dim(self):
         da = _make_da()
@@ -98,8 +98,8 @@ class TestFindOptimalCombination:
             show_progress=False,
         )
         assert result.n_clusters >= 2
-        assert "variable" in result.best.cluster_representatives.dims
-        assert "region" in result.best.cluster_representatives.dims
+        assert "variable" in result.best_result.cluster_representatives.dims
+        assert "region" in result.best_result.cluster_representatives.dims
 
     def test_summary(self):
         da = _make_da()
