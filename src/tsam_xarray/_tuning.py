@@ -109,9 +109,10 @@ class TuningResult:
 
     @property
     def accuracy(self) -> Any:
-        """Per-column RMSE for each tested config.
+        """Per-column accuracy metrics for each tested config.
 
-        Lazy and cached.  Returns an xarray DataArray with the
+        Lazy and cached.  Returns an xarray Dataset with variables
+        ``rmse``, ``mae``, and ``rmse_duration``, each with the
         cluster dimensions plus ``(n_clusters, n_segments)``.
         NaN where a combination was not tested.
 
@@ -121,14 +122,21 @@ class TuningResult:
             self._require_all_results()
             import xarray as xr
 
-            arrays = []
+            datasets = []
             for h, res in zip(self.history, self.all_results, strict=True):
-                arr = res.accuracy.rmse.expand_dims(
-                    n_clusters=[h["n_clusters"]],
-                    n_segments=[h["n_segments"]],
+                dims = {
+                    "n_clusters": [h["n_clusters"]],
+                    "n_segments": [h["n_segments"]],
+                }
+                ds = xr.Dataset(
+                    {
+                        "rmse": res.accuracy.rmse.expand_dims(dims),
+                        "mae": res.accuracy.mae.expand_dims(dims),
+                        "rmse_duration": res.accuracy.rmse_duration.expand_dims(dims),
+                    }
                 )
-                arrays.append(arr)
-            self._cache["accuracy"] = xr.combine_by_coords(arrays, join="outer")
+                datasets.append(ds)
+            self._cache["accuracy"] = xr.combine_by_coords(datasets, join="outer")
         return self._cache["accuracy"]
 
     def find_by_timesteps(self, target: int) -> AggregationResult:

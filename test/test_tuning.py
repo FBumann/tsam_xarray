@@ -343,6 +343,9 @@ class TestTuningResult:
         assert "n_clusters" in acc.dims
         assert "n_segments" in acc.dims
         assert "variable" in acc.dims
+        assert "rmse" in acc
+        assert "mae" in acc
+        assert "rmse_duration" in acc
 
     def test_accuracy_cached(self, result_with_all):
         acc1 = result_with_all.accuracy
