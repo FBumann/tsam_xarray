@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/FBumann/tsam_xarray/compare/v0.1.0...v0.1.1) (2026-03-27)
+
+
+### Features
+
+* add Python 3.11 support ([#60](https://github.com/FBumann/tsam_xarray/issues/60)) ([7434a52](https://github.com/FBumann/tsam_xarray/commit/7434a52ee90b279214ac25f894910343c220cc90))
+
 ## [0.1.0](https://github.com/FBumann/tsam_xarray/compare/v0.0.4...v0.1.0) (2026-03-27)
 
 Initial release of tsam_xarray — lightweight xarray wrapper for tsam time series aggregation.
