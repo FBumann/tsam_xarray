@@ -2,13 +2,12 @@
 
 ## [0.1.0](https://github.com/FBumann/tsam_xarray/compare/v0.0.4...v0.1.0) (2026-03-27)
 
+Initial release of tsam_xarray — lightweight xarray wrapper for tsam time series aggregation.
 
-### ⚠ BREAKING CHANGES
-
-* find_optimal_combination with cross-slice RMSE ([#50](https://github.com/FBumann/tsam_xarray/issues/50))
 
 ### Features
 
+* find_optimal_combination with cross-slice RMSE ([#50](https://github.com/FBumann/tsam_xarray/issues/50))
 * clustering IO and apply() ([#35](https://github.com/FBumann/tsam_xarray/issues/35)) ([2068e12](https://github.com/FBumann/tsam_xarray/commit/2068e123892d81008d8fbfa6396a4e6dd51e7f2d))
 * dict-based weights API ([#31](https://github.com/FBumann/tsam_xarray/issues/31)) ([1141f61](https://github.com/FBumann/tsam_xarray/commit/1141f6113448f151f87ac65950aba087a479da1b))
 * find_optimal_combination with cross-slice RMSE ([#50](https://github.com/FBumann/tsam_xarray/issues/50)) ([ae4f281](https://github.com/FBumann/tsam_xarray/commit/ae4f281ada28a01b8d8d3a3be759658b98bd7ede))
