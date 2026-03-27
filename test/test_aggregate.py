@@ -1210,6 +1210,191 @@ class TestClusteringIO:
         xr.testing.assert_allclose(dis, new_result.reconstructed)
 
 
+class TestClusteringDisaggregate:
+    """Tests for ClusteringInfo.disaggregate()."""
+
+    def test_disaggregate_from_loaded_clustering(self, tmp_path):
+        """Loaded clustering can disaggregate without original data."""
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+        )
+        path = tmp_path / "clustering.json"
+        result.clustering.to_json(str(path))
+        clustering = tsam_xarray.load_clustering(str(path))
+
+        dis = clustering.disaggregate(result.cluster_representatives)
+        expected = result.disaggregate(result.cluster_representatives)
+        xr.testing.assert_allclose(dis, expected)
+
+    def test_disaggregate_from_clustering_property(self):
+        """clustering.disaggregate() works directly from aggregate result."""
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+        )
+        dis = result.clustering.disaggregate(result.cluster_representatives)
+        expected = result.disaggregate(result.cluster_representatives)
+        xr.testing.assert_allclose(dis, expected)
+
+    def test_disaggregate_sliced(self, tmp_path):
+        """Loaded sliced clustering can disaggregate."""
+        da = _make_da(scenarios=["low", "high"])
+        result = tsam_xarray.aggregate(
+            da,
+            time_dim="time",
+            cluster_dim=["variable", "region"],
+            n_clusters=4,
+        )
+        path = tmp_path / "clustering.json"
+        result.clustering.to_json(str(path))
+        clustering = tsam_xarray.load_clustering(str(path))
+
+        dis = clustering.disaggregate(result.cluster_representatives)
+        expected = result.disaggregate(result.cluster_representatives)
+        np.testing.assert_allclose(dis.values, expected.values)
+
+    def test_disaggregate_segmented(self, tmp_path):
+        """Loaded clustering can disaggregate segmented results."""
+        from tsam import SegmentConfig
+
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+            segments=SegmentConfig(n_segments=6),
+        )
+        path = tmp_path / "clustering.json"
+        result.clustering.to_json(str(path))
+        clustering = tsam_xarray.load_clustering(str(path))
+
+        dis = clustering.disaggregate(result.cluster_representatives)
+        expected = result.disaggregate(result.cluster_representatives)
+        xr.testing.assert_allclose(dis, expected)
+
+    def test_disaggregate_no_time_coords_raises(self):
+        """ClusteringInfo without time_coords raises ValueError."""
+        from tsam_xarray._clustering import ClusteringInfo
+
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+        )
+        # Construct a ClusteringInfo without time_coords
+        ci = ClusteringInfo(
+            time_dim="time",
+            cluster_dim=["variable"],
+            slice_dims=[],
+            clusterings=result.clustering.clusterings,
+        )
+        with pytest.raises(ValueError, match="No time coordinates"):
+            ci.disaggregate(result.cluster_representatives)
+
+    def test_json_backward_compat(self, tmp_path):
+        """Old JSON without time_coords loads fine, disaggregate raises."""
+        import json
+
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+        )
+        path = tmp_path / "clustering.json"
+        result.clustering.to_json(str(path))
+
+        # Strip time_coords from saved JSON
+        with open(path) as f:
+            data = json.load(f)
+        del data["time_coords"]
+        with open(path, "w") as f:
+            json.dump(data, f)
+
+        clustering = tsam_xarray.load_clustering(str(path))
+        assert clustering.time_coords is None
+        # apply() still works
+        new_result = clustering.apply(da_flat)
+        assert new_result.n_clusters == 4
+        # disaggregate() raises
+        with pytest.raises(ValueError, match="No time coordinates"):
+            clustering.disaggregate(result.cluster_representatives)
+
+    def test_time_coords_in_json(self, tmp_path):
+        """time_coords are serialized in JSON."""
+        import json
+
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+        )
+        path = tmp_path / "clustering.json"
+        result.clustering.to_json(str(path))
+        with open(path) as f:
+            data = json.load(f)
+        assert "time_coords" in data
+        assert len(data["time_coords"]) == da_flat.sizes["time"]
+
+    def test_time_coords_roundtrip(self, tmp_path):
+        """time_coords survive JSON round-trip."""
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+        )
+        path = tmp_path / "clustering.json"
+        result.clustering.to_json(str(path))
+        clustering = tsam_xarray.load_clustering(str(path))
+        np.testing.assert_array_equal(
+            result.clustering.time_coords,
+            clustering.time_coords,
+        )
+
+    def test_1d_disaggregate(self, tmp_path):
+        """Disaggregate works on 1D time series."""
+        time = pd.date_range("2020-01-01", periods=30 * 24, freq="h")
+        rng = np.random.default_rng(42)
+        da = xr.DataArray(
+            rng.random(len(time)),
+            dims=["time"],
+            coords={"time": time},
+            name="load",
+        )
+        result = tsam_xarray.aggregate(
+            da, time_dim="time", cluster_dim=(), n_clusters=4
+        )
+        path = tmp_path / "clustering.json"
+        result.clustering.to_json(str(path))
+        clustering = tsam_xarray.load_clustering(str(path))
+
+        dis = clustering.disaggregate(result.cluster_representatives)
+        expected = result.disaggregate(result.cluster_representatives)
+        xr.testing.assert_allclose(dis, expected)
+
+
 class TestSliceEdgeCases:
     def test_cluster_count_mismatch_raises(self):
         """Mismatched cluster counts across slices raise ValueError."""

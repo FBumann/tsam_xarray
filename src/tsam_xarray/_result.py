@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import numpy as np
 import xarray as xr
 
 if TYPE_CHECKING:
@@ -139,46 +138,10 @@ class AggregationResult:
 
     def _disaggregate_single(self, data: xr.DataArray) -> xr.DataArray:
         """Disaggregate without slice dims."""
-        time_coords = self.original.coords["time"]
-        assignments = self.cluster_assignments.values
-        n_original_timesteps = len(time_coords)
-        n_periods = len(assignments)
-        n_per_period = n_original_timesteps // n_periods
+        import pandas as pd
 
-        other_dims = [str(d) for d in data.dims if d not in ("cluster", "timestep")]
+        from tsam_xarray._clustering import _disaggregate_single
 
-        if self.segment_durations is None:
-            expanded = data.sel(cluster=xr.DataArray(assignments, dims=["period"]))
-            flat = expanded.values.reshape(-1, *expanded.shape[2:])
-            result = xr.DataArray(
-                flat[:n_original_timesteps],
-                dims=["time", *other_dims],
-                coords={"time": time_coords},
-            )
-            for d in other_dims:
-                if d in data.coords:
-                    result = result.assign_coords({d: data.coords[d]})
-            return result
-
-        other_shape = [data.sizes[d] for d in other_dims]
-        total_timesteps = n_periods * n_per_period
-        out = np.full([total_timesteps, *other_shape], np.nan)
-
-        for p_idx, cluster in enumerate(assignments):
-            offset = 0
-            durations = self.segment_durations.sel(cluster=int(cluster)).values
-            for seg_idx, dur in enumerate(durations):
-                t_start = p_idx * n_per_period + offset
-                vals = data.sel(cluster=int(cluster), timestep=seg_idx).values
-                out[t_start] = vals
-                offset += int(dur)
-
-        result = xr.DataArray(
-            out[:n_original_timesteps],
-            dims=["time", *other_dims],
-            coords={"time": time_coords},
-        )
-        for d in other_dims:
-            if d in data.coords:
-                result = result.assign_coords({d: data.coords[d]})
-        return result
+        time_coords = pd.DatetimeIndex(self.original.coords["time"].values)
+        cr = self.clustering.clusterings[()]
+        return _disaggregate_single(time_coords, cr, data)
