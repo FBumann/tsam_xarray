@@ -5,7 +5,7 @@
 [![CI](https://github.com/FBumann/tsam_xarray/actions/workflows/ci.yaml/badge.svg)](https://github.com/FBumann/tsam_xarray/actions/workflows/ci.yaml)
 [![codecov](https://codecov.io/gh/FBumann/tsam_xarray/graph/badge.svg)](https://codecov.io/gh/FBumann/tsam_xarray)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Docs](https://img.shields.io/badge/docs-readthedocs-blue)](https://tsam_xarray.readthedocs.io/)
+[![Docs](https://img.shields.io/badge/docs-readthedocs-blue)](https://tsam-xarray.readthedocs.io/)
 
 Lightweight [xarray](https://xarray.dev/) wrapper for [tsam](https://github.com/FZJ-IEK3-VSA/tsam) time series aggregation.
 
