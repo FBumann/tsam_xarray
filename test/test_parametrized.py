@@ -217,6 +217,7 @@ class TestClusteringDisaggregateMatrix:
         """Segmented: clustering.disaggregate(reps).ffill() == reconstructed."""
         result = _aggregate(agg_case, segments=SegmentConfig(n_segments=6))
         dis = result.clustering.disaggregate(result.cluster_representatives)
+        assert bool(dis.isnull().any()), "segmented disaggregate should contain NaN"
         filled = dis.ffill(dim=agg_case.time_dim)
         np.testing.assert_allclose(
             filled.values, result.reconstructed.values, rtol=1e-10
@@ -231,6 +232,7 @@ class TestClusteringDisaggregateMatrix:
         result.clustering.to_json(str(path))
         loaded = tsam_xarray.load_clustering(str(path))
         dis = loaded.disaggregate(result.cluster_representatives)
+        assert bool(dis.isnull().any()), "segmented disaggregate should contain NaN"
         filled = dis.ffill(dim=agg_case.time_dim)
         np.testing.assert_allclose(
             filled.values, result.reconstructed.values, rtol=1e-10
