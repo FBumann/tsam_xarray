@@ -30,14 +30,6 @@ class AccuracyMetrics:
             f"weighted_rmse_duration={self.weighted_rmse_duration:.4f})"
         )
 
-    def __repr__(self) -> str:
-        return (
-            f"AccuracyMetrics("
-            f"rmse_mean={float(self.rmse.mean()):.4f}, "
-            f"mae_mean={float(self.mae.mean()):.4f}, "
-            f"rmse_duration_mean={float(self.rmse_duration.mean()):.4f})"
-        )
-
 
 @dataclass(frozen=True, repr=False)
 class AggregationResult:
