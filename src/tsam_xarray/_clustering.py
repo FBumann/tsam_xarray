@@ -21,7 +21,7 @@ from tsam_xarray._core import (
 )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class ClusteringResult:
     """Reusable clustering result with xarray dimension metadata.
 
@@ -40,6 +40,19 @@ class ClusteringResult:
     _cache: dict[str, Any] = field(
         default_factory=dict, repr=False, init=False, compare=False
     )
+
+    def __repr__(self) -> str:
+        seg = f", n_segments={self.n_segments}" if self.n_segments else ""
+        slices = f", slice_dims={self.slice_dims}" if self.slice_dims else ""
+        return (
+            f"ClusteringResult("
+            f"n_clusters={self.n_clusters}, "
+            f"n_periods={self.n_original_periods}, "
+            f"timesteps_per_period={self.n_timesteps_per_period}, "
+            f"time_dim={self.time_dim!r}, "
+            f"cluster_dim={self.cluster_dim}"
+            f"{slices}{seg})"
+        )
 
     # -- scalar accessors (uniform across slices) --
 

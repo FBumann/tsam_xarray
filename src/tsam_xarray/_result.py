@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from tsam_xarray._clustering import ClusteringResult
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class AccuracyMetrics:
     """Accuracy metrics from time series aggregation."""
 
@@ -19,8 +19,16 @@ class AccuracyMetrics:
     mae: xr.DataArray
     rmse_duration: xr.DataArray
 
+    def __repr__(self) -> str:
+        return (
+            f"AccuracyMetrics("
+            f"rmse={self.rmse.shape}, "
+            f"mae={self.mae.shape}, "
+            f"rmse_duration={self.rmse_duration.shape})"
+        )
 
-@dataclass(frozen=True)
+
+@dataclass(frozen=True, repr=False)
 class AggregationResult:
     """Result of tsam_xarray.aggregate()."""
 
@@ -33,6 +41,16 @@ class AggregationResult:
     original: xr.DataArray
     clustering: ClusteringResult
     is_transferred: bool = False
+
+    def __repr__(self) -> str:
+        seg = f", n_segments={self.n_segments}" if self.n_segments else ""
+        return (
+            f"AggregationResult("
+            f"n_clusters={self.n_clusters}, "
+            f"representatives={self.cluster_representatives.shape}, "
+            f"reconstructed={self.reconstructed.shape}"
+            f"{seg})"
+        )
 
     @property
     def n_clusters(self) -> int:
