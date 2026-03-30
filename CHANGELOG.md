@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.0](https://github.com/FBumann/tsam_xarray/compare/v0.1.1...v0.2.0) (2026-03-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* add ClusteringInfo.disaggregate() (requires tsam >=3.3.0) ([#62](https://github.com/FBumann/tsam_xarray/issues/62))
+
+### Features
+
+* add ClusteringInfo.disaggregate() (requires tsam &gt;=3.3.0) ([#62](https://github.com/FBumann/tsam_xarray/issues/62)) ([945210a](https://github.com/FBumann/tsam_xarray/commit/945210a17e2069f7657515d2e7ffd2a6a5f61c74))
+
 ## [0.1.1](https://github.com/FBumann/tsam_xarray/compare/v0.1.0...v0.1.1) (2026-03-27)
 
 
