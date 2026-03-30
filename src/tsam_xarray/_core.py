@@ -463,9 +463,9 @@ def _aggregate_single(
 
     seg_durations = _segment_durations_to_da(tsam_result.segment_durations)
 
-    from tsam_xarray._clustering import ClusteringInfo
+    from tsam_xarray._clustering import ClusteringResult
 
-    clustering_info = ClusteringInfo(
+    clustering_info = ClusteringResult(
         time_dim=time_dim,
         cluster_dim=col_dims,
         slice_dims=[],
@@ -543,8 +543,8 @@ def _concat_results(
         arrays = [getattr(r.accuracy, field_name) for r in results]
         return _concat_along_dims(arrays, slice_dims, slice_coords)
 
-    # Merge per-slice ClusteringInfos into one
-    from tsam_xarray._clustering import ClusteringInfo, _native_key
+    # Merge per-slice clusterings into one
+    from tsam_xarray._clustering import ClusteringResult, _native_key
 
     first = results[0]
     merged_clusterings: dict[tuple[Hashable, ...], Any] = {}
@@ -552,7 +552,7 @@ def _concat_results(
         for cr in r.clustering.clusterings.values():
             merged_clusterings[_native_key(key)] = cr
 
-    merged_clustering = ClusteringInfo(
+    merged_clustering = ClusteringResult(
         time_dim=first.clustering.time_dim,
         cluster_dim=first.clustering.cluster_dim,
         slice_dims=slice_dims,

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import xarray as xr
 
 if TYPE_CHECKING:
-    from tsam_xarray._clustering import ClusteringInfo
+    from tsam_xarray._clustering import ClusteringResult
 
 
 @dataclass(frozen=True)
@@ -31,7 +31,7 @@ class AggregationResult:
     accuracy: AccuracyMetrics
     reconstructed: xr.DataArray
     original: xr.DataArray
-    clustering: ClusteringInfo
+    clustering: ClusteringResult
     is_transferred: bool = False
 
     @property
@@ -104,7 +104,9 @@ class AggregationResult:
     def _make_slice_view(self, sel: dict[str, object]) -> AggregationResult:
         """Create a view of this result for a single slice."""
         from tsam_xarray._clustering import (
-            ClusteringInfo,
+            ClusteringResult as CR,
+        )
+        from tsam_xarray._clustering import (
             _lookup_clustering,
         )
 
@@ -128,7 +130,7 @@ class AggregationResult:
             ),
             reconstructed=self.reconstructed.sel(sel),
             original=self.original.sel(sel),
-            clustering=ClusteringInfo(
+            clustering=CR(
                 time_dim=self.clustering.time_dim,
                 cluster_dim=self.clustering.cluster_dim,
                 slice_dims=[],
