@@ -322,7 +322,7 @@ def _evaluate_candidates(
                 period_duration=period_duration,
                 **tsam_kwargs,
             )
-            rmse = _compute_overall_rmse(result, weights, cluster_dim)
+            rmse = result.accuracy.weighted_rmse
             history.append(
                 {
                     "n_clusters": n_clust,
@@ -671,51 +671,3 @@ def _pareto_filter(
             best_rmse = entry["rmse"]
 
     return pareto_history, pareto_results
-
-
-# ---------------------------------------------------------------------------
-# RMSE computation
-# ---------------------------------------------------------------------------
-
-
-def _compute_overall_rmse(
-    result: AggregationResult,
-    weights: Weights,
-    cluster_dim: Sequence[str] | str,
-) -> float:
-    """Compute weighted overall RMSE across all columns and slices.
-
-    Weights affect the aggregation across cluster_dim columns.
-    Slice dims are averaged equally.
-    """
-    from tsam_xarray._core import (
-        _normalize_weights,
-        _resolve_cluster_dim,
-    )
-
-    rmse = result.accuracy.rmse
-    col_dims = _resolve_cluster_dim(cluster_dim)
-
-    # Get per-dim weights if provided
-    per_dim = _normalize_weights(weights, result.original, col_dims)
-
-    if per_dim is None:
-        # Unweighted: quadratic mean across all values
-        return float(np.sqrt((rmse**2).mean()))
-
-    # Build weight array matching rmse dims (cluster_dims only)
-    w_values = np.ones_like(rmse.values, dtype=float)
-    for dim_name, coord_weights in per_dim.items():
-        if dim_name in rmse.dims:
-            dim_idx = list(rmse.dims).index(dim_name)
-            for coord_val, w in coord_weights.items():
-                coord_vals = [str(c) for c in rmse.coords[dim_name].values]
-                if str(coord_val) in coord_vals:
-                    idx = coord_vals.index(str(coord_val))
-                    indexer: list[Any] = [slice(None)] * len(rmse.dims)
-                    indexer[dim_idx] = idx
-                    w_values[tuple(indexer)] *= w
-
-    # Weighted quadratic mean
-    weighted_sq = w_values * rmse.values**2
-    return float(np.sqrt(weighted_sq.sum() / w_values.sum()))
