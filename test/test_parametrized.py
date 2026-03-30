@@ -193,6 +193,13 @@ class TestSegmentationMatrix:
         assert bool(dis.isnull().any())
 
 
+def _roundtrip_clustering_via_json(result, tmp_path):  # type: ignore[no-untyped-def]
+    """Save and reload clustering through JSON."""
+    path = tmp_path / "clustering.json"
+    result.clustering.to_json(str(path))
+    return tsam_xarray.load_clustering(str(path))
+
+
 class TestClusteringDisaggregateMatrix:
     """ClusteringInfo.disaggregate() across all dim combinations."""
 
@@ -207,9 +214,7 @@ class TestClusteringDisaggregateMatrix:
     ):
         """save → load → disaggregate(reps) == reconstructed."""
         result = _aggregate(agg_case)
-        path = tmp_path / "clustering.json"
-        result.clustering.to_json(str(path))
-        loaded = tsam_xarray.load_clustering(str(path))
+        loaded = _roundtrip_clustering_via_json(result, tmp_path)
         dis = loaded.disaggregate(result.cluster_representatives)
         np.testing.assert_allclose(dis.values, result.reconstructed.values, rtol=1e-10)
 
@@ -228,9 +233,7 @@ class TestClusteringDisaggregateMatrix:
     ):
         """Segmented: save → load → disaggregate(reps).ffill() == reconstructed."""
         result = _aggregate(agg_case, segments=SegmentConfig(n_segments=6))
-        path = tmp_path / "clustering.json"
-        result.clustering.to_json(str(path))
-        loaded = tsam_xarray.load_clustering(str(path))
+        loaded = _roundtrip_clustering_via_json(result, tmp_path)
         dis = loaded.disaggregate(result.cluster_representatives)
         assert bool(dis.isnull().any()), "segmented disaggregate should contain NaN"
         filled = dis.ffill(dim=agg_case.time_dim)
@@ -252,9 +255,7 @@ class TestClusteringDisaggregateMatrix:
     ):
         """apply() result can also be disaggregated via clustering."""
         result = _aggregate(agg_case)
-        path = tmp_path / "clustering.json"
-        result.clustering.to_json(str(path))
-        loaded = tsam_xarray.load_clustering(str(path))
+        loaded = _roundtrip_clustering_via_json(result, tmp_path)
         applied = loaded.apply(agg_case.da)
         dis = applied.clustering.disaggregate(applied.cluster_representatives)
         np.testing.assert_allclose(dis.values, applied.reconstructed.values, rtol=1e-10)
