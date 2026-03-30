@@ -90,14 +90,14 @@ class ClusteringResult:
     def _build_assignments(self) -> xr.DataArray:
         if not self.slice_dims:
             cr = self.clusterings[()]
-            return xr.DataArray(cr.cluster_assignments, dims=["period"])
+            return xr.DataArray(list(cr.cluster_assignments), dims=["period"])
 
         import itertools
 
         sc = self._slice_coords
         keys = list(itertools.product(*(sc[d] for d in self.slice_dims)))
         arrays = [
-            xr.DataArray(self.clusterings[k].cluster_assignments, dims=["period"])
+            xr.DataArray(list(self.clusterings[k].cluster_assignments), dims=["period"])
             for k in keys
         ]
         return _concat_along_dims(arrays, self.slice_dims, sc)

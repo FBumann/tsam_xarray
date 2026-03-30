@@ -261,6 +261,110 @@ class TestClusteringDisaggregateMatrix:
         np.testing.assert_allclose(dis.values, applied.reconstructed.values, rtol=1e-10)
 
 
+class TestClusteringResultProperties:
+    """ClusteringResult cached DataArray properties across all dim combinations."""
+
+    def test_cluster_assignments_dims(self, agg_case: AggregateCase):
+        result = _aggregate(agg_case)
+        da = result.clustering.cluster_assignments
+        assert set(da.dims) == {"period"} | agg_case.expected_slice_dims
+
+    def test_cluster_assignments_values_match(self, agg_case: AggregateCase):
+        """Property matches AggregationResult.cluster_assignments."""
+        result = _aggregate(agg_case)
+        np.testing.assert_array_equal(
+            result.clustering.cluster_assignments.values,
+            result.cluster_assignments.values,
+        )
+
+    def test_cluster_occurrences_dims(self, agg_case: AggregateCase):
+        result = _aggregate(agg_case)
+        da = result.clustering.cluster_occurrences
+        assert set(da.dims) == {"cluster"} | agg_case.expected_slice_dims
+
+    def test_cluster_occurrences_matches_weights(self, agg_case: AggregateCase):
+        """Occurrences match AggregationResult.cluster_weights."""
+        result = _aggregate(agg_case)
+        np.testing.assert_array_equal(
+            result.clustering.cluster_occurrences.values,
+            result.cluster_weights.values,
+        )
+
+    def test_cluster_occurrences_sum(self, agg_case: AggregateCase):
+        """Occurrences sum to n_periods per slice."""
+        result = _aggregate(agg_case)
+        da = result.clustering.cluster_occurrences
+        if not agg_case.expected_slice_dims:
+            assert int(da.sum()) == agg_case.n_periods
+        else:
+            sums = da.sum(dim="cluster")
+            assert np.all(sums.values == agg_case.n_periods)
+
+    def test_segment_durations_none(self, agg_case: AggregateCase):
+        result = _aggregate(agg_case)
+        assert result.clustering.segment_durations is None
+
+    def test_segment_durations_dims(self, agg_case: AggregateCase):
+        result = _aggregate(agg_case, segments=SegmentConfig(n_segments=6))
+        da = result.clustering.segment_durations
+        assert da is not None
+        assert set(da.dims) == {"cluster", "timestep"} | agg_case.expected_slice_dims
+
+    def test_segment_durations_values_match(self, agg_case: AggregateCase):
+        result = _aggregate(agg_case, segments=SegmentConfig(n_segments=6))
+        np.testing.assert_array_equal(
+            result.clustering.segment_durations.values,
+            result.segment_durations.values,
+        )
+
+    def test_n_clusters(self, agg_case: AggregateCase):
+        result = _aggregate(agg_case)
+        assert result.clustering.n_clusters == agg_case.n_clusters
+
+    def test_n_original_periods(self, agg_case: AggregateCase):
+        result = _aggregate(agg_case)
+        assert result.clustering.n_original_periods == agg_case.n_periods
+
+    def test_n_timesteps_per_period(self, agg_case: AggregateCase):
+        result = _aggregate(agg_case)
+        assert result.clustering.n_timesteps_per_period == 24
+
+    def test_n_segments_none(self, agg_case: AggregateCase):
+        result = _aggregate(agg_case)
+        assert result.clustering.n_segments is None
+
+    def test_n_segments_with_segmentation(self, agg_case: AggregateCase):
+        result = _aggregate(agg_case, segments=SegmentConfig(n_segments=6))
+        assert result.clustering.n_segments == 6
+
+    def test_caching(self, agg_case: AggregateCase):
+        """Second access returns same object."""
+        result = _aggregate(agg_case)
+        a1 = result.clustering.cluster_assignments
+        a2 = result.clustering.cluster_assignments
+        assert a1 is a2
+
+    def test_json_roundtrip_assignments(
+        self, agg_case: AggregateCase, tmp_path: pytest.TempPathFactory
+    ):
+        result = _aggregate(agg_case)
+        loaded = _roundtrip_clustering_via_json(result, tmp_path)
+        np.testing.assert_array_equal(
+            result.clustering.cluster_assignments.values,
+            loaded.cluster_assignments.values,
+        )
+
+    def test_json_roundtrip_occurrences(
+        self, agg_case: AggregateCase, tmp_path: pytest.TempPathFactory
+    ):
+        result = _aggregate(agg_case)
+        loaded = _roundtrip_clustering_via_json(result, tmp_path)
+        np.testing.assert_array_equal(
+            result.clustering.cluster_occurrences.values,
+            loaded.cluster_occurrences.values,
+        )
+
+
 class TestClusteringIORoundtrip:
     """save/load/apply preserves results."""
 
