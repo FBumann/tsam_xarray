@@ -170,7 +170,12 @@ class ClusteringResult:
         das: list[xr.DataArray] = [first]
         for k in keys[1:]:
             da = _segment_durations_to_da(self.clusterings[k].segment_durations)
-            assert da is not None  # uniform across slices
+            if da is None:
+                msg = (
+                    f"Slice {k} has no segment durations but the first "
+                    f"slice does. Segmentation must be uniform across slices."
+                )
+                raise ValueError(msg)
             das.append(da)
         return _concat_along_dims(das, self.slice_dims, sc)
 
