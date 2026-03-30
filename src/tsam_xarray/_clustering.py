@@ -10,31 +10,174 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import tsam
 import xarray as xr
-from tsam import ClusteringResult
 
 from tsam_xarray._core import (
     _concat_along_dims,
     _concat_results,
     _resolve_cluster_dim,
+    _segment_durations_to_da,
 )
 
 
-@dataclass(frozen=True)
-class ClusteringInfo:
-    """Reusable clustering with xarray dimension metadata.
+@dataclass(frozen=True, repr=False)
+class ClusteringResult:
+    """Reusable clustering result with xarray dimension metadata.
 
     Wraps one or more tsam ``ClusteringResult`` objects alongside
     the dimension names needed to apply the clustering to new data.
+    Exposes clustering metadata as xarray DataArrays.
     """
 
     time_dim: str
     cluster_dim: list[str]
     slice_dims: list[str]
-    clusterings: dict[tuple[Hashable, ...], ClusteringResult]
-    """Per-slice clustering. Single entry ``{(): result}`` when no slicing."""
+    clusterings: dict[tuple[Hashable, ...], tsam.ClusteringResult]
+    """Per-slice tsam clustering. Single entry ``{(): result}`` when no slicing."""
     time_coords: pd.DatetimeIndex | None = field(default=None, repr=False)
     """Original time coordinates. Needed for :meth:`disaggregate`."""
+    _cache: dict[str, Any] = field(
+        default_factory=dict, repr=False, init=False, compare=False
+    )
+
+    def __repr__(self) -> str:
+        seg = f", n_segments={self.n_segments}" if self.n_segments else ""
+        slices = f", slice_dims={self.slice_dims}" if self.slice_dims else ""
+        return (
+            f"ClusteringResult("
+            f"n_clusters={self.n_clusters}, "
+            f"n_periods={self.n_original_periods}, "
+            f"timesteps_per_period={self.n_timesteps_per_period}, "
+            f"time_dim={self.time_dim!r}, "
+            f"cluster_dim={self.cluster_dim}"
+            f"{slices}{seg})"
+        )
+
+    # -- scalar accessors (uniform across slices) --
+
+    @property
+    def n_clusters(self) -> int:
+        """Number of clusters."""
+        return next(iter(self.clusterings.values())).n_clusters
+
+    @property
+    def n_original_periods(self) -> int:
+        """Number of original periods (e.g., days)."""
+        return next(iter(self.clusterings.values())).n_original_periods
+
+    @property
+    def n_timesteps_per_period(self) -> int:
+        """Number of timesteps per period (e.g., 24 for hourly with daily periods)."""
+        return next(iter(self.clusterings.values())).n_timesteps_per_period
+
+    @property
+    def n_segments(self) -> int | None:
+        """Number of segments per period, or None if no segmentation."""
+        return next(iter(self.clusterings.values())).n_segments
+
+    # -- DataArray properties (cached, concatenated across slices) --
+
+    @property
+    def _slice_coords(self) -> dict[str, Any]:
+        """Reconstruct slice coordinates from clusterings keys."""
+        if not self.slice_dims:
+            return {}
+        keys = list(self.clusterings.keys())
+        return {
+            dim: list(dict.fromkeys(k[i] for k in keys))
+            for i, dim in enumerate(self.slice_dims)
+        }
+
+    @property
+    def cluster_assignments(self) -> xr.DataArray:
+        """Cluster assignment for each period, as DataArray.
+
+        Dims: ``(period, *slice_dims)``.
+        """
+        if "cluster_assignments" not in self._cache:
+            self._cache["cluster_assignments"] = self._build_assignments()
+        result: xr.DataArray = self._cache["cluster_assignments"]
+        return result
+
+    def _build_assignments(self) -> xr.DataArray:
+        if not self.slice_dims:
+            cr = self.clusterings[()]
+            return xr.DataArray(list(cr.cluster_assignments), dims=["period"])
+
+        import itertools
+
+        sc = self._slice_coords
+        keys = list(itertools.product(*(sc[d] for d in self.slice_dims)))
+        arrays = [
+            xr.DataArray(list(self.clusterings[k].cluster_assignments), dims=["period"])
+            for k in keys
+        ]
+        return _concat_along_dims(arrays, self.slice_dims, sc)
+
+    @property
+    def cluster_occurrences(self) -> xr.DataArray:
+        """Number of periods assigned to each cluster.
+
+        Dims: ``(cluster, *slice_dims)``.
+        """
+        if "cluster_occurrences" not in self._cache:
+            self._cache["cluster_occurrences"] = self._build_occurrences()
+        result: xr.DataArray = self._cache["cluster_occurrences"]
+        return result
+
+    def _build_occurrences(self) -> xr.DataArray:
+        def _single(cr: tsam.ClusteringResult) -> xr.DataArray:
+            counts = np.bincount(cr.cluster_assignments, minlength=cr.n_clusters)
+            return xr.DataArray(
+                counts,
+                dims=["cluster"],
+                coords={"cluster": np.arange(cr.n_clusters)},
+            )
+
+        if not self.slice_dims:
+            return _single(self.clusterings[()])
+
+        import itertools
+
+        sc = self._slice_coords
+        keys = list(itertools.product(*(sc[d] for d in self.slice_dims)))
+        arrays = [_single(self.clusterings[k]) for k in keys]
+        return _concat_along_dims(arrays, self.slice_dims, sc)
+
+    @property
+    def segment_durations(self) -> xr.DataArray | None:
+        """Duration of each segment per cluster, or None if no segmentation.
+
+        Dims: ``(cluster, timestep, *slice_dims)``.
+        """
+        if "segment_durations" not in self._cache:
+            self._cache["segment_durations"] = self._build_segment_durations()
+        result: xr.DataArray | None = self._cache["segment_durations"]
+        return result
+
+    def _build_segment_durations(self) -> xr.DataArray | None:
+        if not self.slice_dims:
+            return _segment_durations_to_da(self.clusterings[()].segment_durations)
+
+        import itertools
+
+        sc = self._slice_coords
+        keys = list(itertools.product(*(sc[d] for d in self.slice_dims)))
+        first = _segment_durations_to_da(self.clusterings[keys[0]].segment_durations)
+        if first is None:
+            return None
+        das: list[xr.DataArray] = [first]
+        for k in keys[1:]:
+            da = _segment_durations_to_da(self.clusterings[k].segment_durations)
+            if da is None:
+                msg = (
+                    f"Slice {k} has no segment durations but the first "
+                    f"slice does. Segmentation must be uniform across slices."
+                )
+                raise ValueError(msg)
+            das.append(da)
+        return _concat_along_dims(das, self.slice_dims, sc)
 
     def apply(
         self,
@@ -131,7 +274,7 @@ class ClusteringInfo:
         if self.time_coords is None:
             msg = (
                 "No time coordinates available. "
-                "This ClusteringInfo was loaded from a JSON file "
+                "This ClusteringResult was loaded from a JSON file "
                 "that does not contain time coordinate data. "
                 "Re-run aggregate() or save from a newer version."
             )
@@ -191,7 +334,7 @@ class ClusteringInfo:
             json.dump(data, f, **json_kwargs)
 
     @classmethod
-    def from_json(cls, path: str | Path) -> ClusteringInfo:
+    def from_json(cls, path: str | Path) -> ClusteringResult:
         """Load clustering from JSON file.
 
         Parameters
@@ -201,15 +344,15 @@ class ClusteringInfo:
 
         Returns
         -------
-        ClusteringInfo
+        ClusteringResult
         """
         with Path(path).open() as f:
             data = json.load(f)
 
-        clusterings: dict[tuple[Hashable, ...], ClusteringResult] = {}
+        clusterings: dict[tuple[Hashable, ...], tsam.ClusteringResult] = {}
         for entry in data["clusterings"]:
             key = tuple(entry["key"])
-            clusterings[key] = ClusteringResult.from_dict(entry["clustering"])
+            clusterings[key] = tsam.ClusteringResult.from_dict(entry["clustering"])
 
         time_coords: pd.DatetimeIndex | None = None
         if "time_coords" in data:
@@ -224,15 +367,19 @@ class ClusteringInfo:
         )
 
 
+ClusteringInfo = ClusteringResult
+"""Backwards-compatible alias for :class:`ClusteringResult`."""
+
+
 def _native_key(key: tuple[Any, ...]) -> tuple[Any, ...]:
     """Convert numpy scalars in key to Python builtins."""
     return tuple(k.item() if hasattr(k, "item") else k for k in key)
 
 
 def _lookup_clustering(
-    clusterings: dict[tuple[Hashable, ...], ClusteringResult],
+    clusterings: dict[tuple[Hashable, ...], tsam.ClusteringResult],
     key: tuple[Any, ...],
-) -> ClusteringResult:
+) -> tsam.ClusteringResult:
     """Look up clustering by key."""
     native = _native_key(key)
     if native in clusterings:
@@ -246,7 +393,7 @@ def _validate_apply(
     time_dim: str,
     col_dims: list[str],
     stored_slice_dims: list[str],
-    clusterings: dict[tuple[Hashable, ...], ClusteringResult],
+    clusterings: dict[tuple[Hashable, ...], tsam.ClusteringResult],
 ) -> None:
     """Validate data is compatible with stored clustering."""
     if time_dim not in da.dims:
@@ -275,7 +422,7 @@ def _validate_apply(
 
 def _apply_single(
     da: xr.DataArray,
-    cr: ClusteringResult,
+    cr: tsam.ClusteringResult,
     time_dim: str,
     col_dims: list[str],
     tsam_kwargs: dict[str, Any],
@@ -322,7 +469,7 @@ def _apply_single(
 
     seg_durations = _segment_durations_to_da(tsam_result.segment_durations)
 
-    clustering_info = ClusteringInfo(
+    clustering_info = ClusteringResult(
         time_dim=time_dim,
         cluster_dim=col_dims,
         slice_dims=[],
@@ -345,7 +492,7 @@ def _apply_single(
 
 def _disaggregate_single(
     time_coords: pd.DatetimeIndex,
-    cr: ClusteringResult,
+    cr: tsam.ClusteringResult,
     data: xr.DataArray,
 ) -> xr.DataArray:
     """Disaggregate a single (non-sliced) DataArray using a ClusteringResult."""

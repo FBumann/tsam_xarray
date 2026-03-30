@@ -8,10 +8,10 @@ from typing import TYPE_CHECKING
 import xarray as xr
 
 if TYPE_CHECKING:
-    from tsam_xarray._clustering import ClusteringInfo
+    from tsam_xarray._clustering import ClusteringResult
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class AccuracyMetrics:
     """Accuracy metrics from time series aggregation."""
 
@@ -19,8 +19,16 @@ class AccuracyMetrics:
     mae: xr.DataArray
     rmse_duration: xr.DataArray
 
+    def __repr__(self) -> str:
+        return (
+            f"AccuracyMetrics("
+            f"rmse_mean={float(self.rmse.mean()):.4f}, "
+            f"mae_mean={float(self.mae.mean()):.4f}, "
+            f"rmse_duration_mean={float(self.rmse_duration.mean()):.4f})"
+        )
 
-@dataclass(frozen=True)
+
+@dataclass(frozen=True, repr=False)
 class AggregationResult:
     """Result of tsam_xarray.aggregate()."""
 
@@ -31,8 +39,21 @@ class AggregationResult:
     accuracy: AccuracyMetrics
     reconstructed: xr.DataArray
     original: xr.DataArray
-    clustering: ClusteringInfo
+    clustering: ClusteringResult
     is_transferred: bool = False
+
+    def __repr__(self) -> str:
+        c = self.clustering
+        slices = f", slice_dims={c.slice_dims}" if c.slice_dims else ""
+        seg = f", n_segments={self.n_segments}" if self.n_segments else ""
+        return (
+            f"AggregationResult("
+            f"n_clusters={self.n_clusters}, "
+            f"n_periods={c.n_original_periods}, "
+            f"cluster_dim={c.cluster_dim}"
+            f"{slices}{seg}, "
+            f"rmse_mean={float(self.accuracy.rmse.mean()):.4f})"
+        )
 
     @property
     def n_clusters(self) -> int:
@@ -104,7 +125,9 @@ class AggregationResult:
     def _make_slice_view(self, sel: dict[str, object]) -> AggregationResult:
         """Create a view of this result for a single slice."""
         from tsam_xarray._clustering import (
-            ClusteringInfo,
+            ClusteringResult as CR,
+        )
+        from tsam_xarray._clustering import (
             _lookup_clustering,
         )
 
@@ -128,7 +151,7 @@ class AggregationResult:
             ),
             reconstructed=self.reconstructed.sel(sel),
             original=self.original.sel(sel),
-            clustering=ClusteringInfo(
+            clustering=CR(
                 time_dim=self.clustering.time_dim,
                 cluster_dim=self.clustering.cluster_dim,
                 slice_dims=[],
