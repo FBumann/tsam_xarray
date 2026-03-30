@@ -281,7 +281,6 @@ def _apply_single(
     tsam_kwargs: dict[str, Any],
 ) -> Any:
     """Apply a single ClusteringResult to a DataArray."""
-    import numpy as np
     import pandas as pd
 
     from tsam_xarray._core import (
@@ -350,45 +349,50 @@ def _disaggregate_single(
     data: xr.DataArray,
 ) -> xr.DataArray:
     """Disaggregate a single (non-sliced) DataArray using a ClusteringResult."""
-    assignments = cr.cluster_assignments
-    n_original_timesteps = len(time_coords)
-    n_periods = len(assignments)
-    n_per_period = n_original_timesteps // n_periods
-
     other_dims = [str(d) for d in data.dims if d not in ("cluster", "timestep")]
+    ordered = data.transpose("cluster", "timestep", *other_dims)
 
-    if cr.segment_durations is None:
-        expanded = data.sel(cluster=xr.DataArray(list(assignments), dims=["period"]))
-        flat = expanded.values.reshape(-1, *expanded.shape[2:])
+    clusters = ordered.coords["cluster"].values
+    n_clusters = len(clusters)
+    n_timesteps = ordered.sizes["timestep"]
+    other_sizes = ordered.shape[2:]
+
+    flat = ordered.values.reshape(n_clusters * n_timesteps, -1)
+
+    if cr.segment_durations is not None:
+        idx_tuples = []
+        for c in clusters:
+            for seg, dur in enumerate(cr.segment_durations[int(c)]):
+                idx_tuples.append((int(c), seg, int(dur)))
+        mi = pd.MultiIndex.from_tuples(
+            idx_tuples, names=["cluster", "segment", "duration"]
+        )
+    else:
+        mi = pd.MultiIndex.from_product(
+            [clusters, range(n_timesteps)], names=["cluster", "timestep"]
+        )
+
+    df = pd.DataFrame(flat, index=mi, columns=range(flat.shape[1]))
+    expanded = cr.disaggregate(df)
+
+    n_original = len(time_coords)
+    vals = expanded.values[:n_original]
+
+    if other_dims:
+        vals = vals.reshape(n_original, *other_sizes)
         result = xr.DataArray(
-            flat[:n_original_timesteps],
+            vals,
             dims=["time", *other_dims],
             coords={"time": time_coords},
         )
         for d in other_dims:
             if d in data.coords:
                 result = result.assign_coords({d: data.coords[d]})
-        return result
+    else:
+        result = xr.DataArray(
+            vals[:, 0],
+            dims=["time"],
+            coords={"time": time_coords},
+        )
 
-    other_shape = [data.sizes[d] for d in other_dims]
-    total_timesteps = n_periods * n_per_period
-    out = np.full([total_timesteps, *other_shape], np.nan)
-
-    for p_idx, cluster in enumerate(assignments):
-        offset = 0
-        durations = cr.segment_durations[cluster]
-        for seg_idx, dur in enumerate(durations):
-            t_start = p_idx * n_per_period + offset
-            vals = data.sel(cluster=int(cluster), timestep=seg_idx).values
-            out[t_start] = vals
-            offset += int(dur)
-
-    result = xr.DataArray(
-        out[:n_original_timesteps],
-        dims=["time", *other_dims],
-        coords={"time": time_coords},
-    )
-    for d in other_dims:
-        if d in data.coords:
-            result = result.assign_coords({d: data.coords[d]})
     return result
