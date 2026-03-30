@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.0](https://github.com/FBumann/tsam_xarray/compare/v0.2.0...v0.3.0) (2026-03-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* ClusteringInfo renamed to ClusteringResult. ClusteringInfo remains as a backwards-compatible alias.
+* ClusteringInfo renamed to ClusteringResult. ClusteringInfo remains as a backwards-compatible alias.
+
+### Features
+
+* rename ClusteringInfo to ClusteringResult with cached DataArray properties ([#64](https://github.com/FBumann/tsam_xarray/issues/64)) ([5db89d0](https://github.com/FBumann/tsam_xarray/commit/5db89d0e2eb92b0b3664c2757b353d3107cb6e88))
+* store weighted accuracy metrics and compact repr ([#65](https://github.com/FBumann/tsam_xarray/issues/65)) ([5327ecd](https://github.com/FBumann/tsam_xarray/commit/5327ecd79b5b35b5ffad3ef97e45db422d469f61))
+
 ## [0.2.0](https://github.com/FBumann/tsam_xarray/compare/v0.1.1...v0.2.0) (2026-03-30)
 
 
