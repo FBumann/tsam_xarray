@@ -465,6 +465,9 @@ def _apply_single(
         rmse_duration=_metric_to_da(
             tsam_result.accuracy.rmse_duration, col_dims, col_names
         ),
+        weighted_rmse=tsam_result.accuracy.weighted_rmse,
+        weighted_mae=tsam_result.accuracy.weighted_mae,
+        weighted_rmse_duration=tsam_result.accuracy.weighted_rmse_duration,
     )
 
     seg_durations = _segment_durations_to_da(tsam_result.segment_durations)

@@ -18,13 +18,16 @@ class AccuracyMetrics:
     rmse: xr.DataArray
     mae: xr.DataArray
     rmse_duration: xr.DataArray
+    weighted_rmse: float = 0.0
+    weighted_mae: float = 0.0
+    weighted_rmse_duration: float = 0.0
 
     def __repr__(self) -> str:
         return (
             f"AccuracyMetrics("
-            f"rmse_mean={float(self.rmse.mean()):.4f}, "
-            f"mae_mean={float(self.mae.mean()):.4f}, "
-            f"rmse_duration_mean={float(self.rmse_duration.mean()):.4f})"
+            f"weighted_rmse={self.weighted_rmse:.4f}, "
+            f"weighted_mae={self.weighted_mae:.4f}, "
+            f"weighted_rmse_duration={self.weighted_rmse_duration:.4f})"
         )
 
 
@@ -52,7 +55,7 @@ class AggregationResult:
             f"n_periods={c.n_original_periods}, "
             f"cluster_dim={c.cluster_dim}"
             f"{slices}{seg}, "
-            f"rmse_mean={float(self.accuracy.rmse.mean()):.4f})"
+            f"weighted_rmse={self.accuracy.weighted_rmse:.4f})"
         )
 
     @property
@@ -148,6 +151,9 @@ class AggregationResult:
                 rmse=self.accuracy.rmse.sel(sel),
                 mae=self.accuracy.mae.sel(sel),
                 rmse_duration=self.accuracy.rmse_duration.sel(sel),
+                weighted_rmse=self.accuracy.weighted_rmse,
+                weighted_mae=self.accuracy.weighted_mae,
+                weighted_rmse_duration=self.accuracy.weighted_rmse_duration,
             ),
             reconstructed=self.reconstructed.sel(sel),
             original=self.original.sel(sel),
