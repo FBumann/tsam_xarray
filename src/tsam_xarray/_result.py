@@ -22,9 +22,9 @@ class AccuracyMetrics:
     def __repr__(self) -> str:
         return (
             f"AccuracyMetrics("
-            f"rmse={self.rmse.shape}, "
-            f"mae={self.mae.shape}, "
-            f"rmse_duration={self.rmse_duration.shape})"
+            f"rmse_mean={float(self.rmse.mean()):.4f}, "
+            f"mae_mean={float(self.mae.mean()):.4f}, "
+            f"rmse_duration_mean={float(self.rmse_duration.mean()):.4f})"
         )
 
 
@@ -43,13 +43,16 @@ class AggregationResult:
     is_transferred: bool = False
 
     def __repr__(self) -> str:
+        c = self.clustering
+        slices = f", slice_dims={c.slice_dims}" if c.slice_dims else ""
         seg = f", n_segments={self.n_segments}" if self.n_segments else ""
         return (
             f"AggregationResult("
             f"n_clusters={self.n_clusters}, "
-            f"representatives={self.cluster_representatives.shape}, "
-            f"reconstructed={self.reconstructed.shape}"
-            f"{seg})"
+            f"n_periods={c.n_original_periods}, "
+            f"cluster_dim={c.cluster_dim}"
+            f"{slices}{seg}, "
+            f"rmse_mean={float(self.accuracy.rmse.mean()):.4f})"
         )
 
     @property
