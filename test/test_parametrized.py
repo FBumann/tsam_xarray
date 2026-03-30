@@ -193,6 +193,74 @@ class TestSegmentationMatrix:
         assert bool(dis.isnull().any())
 
 
+def _roundtrip_clustering_via_json(result, tmp_path):  # type: ignore[no-untyped-def]
+    """Save and reload clustering through JSON."""
+    path = tmp_path / "clustering.json"
+    result.clustering.to_json(str(path))
+    return tsam_xarray.load_clustering(str(path))
+
+
+class TestClusteringDisaggregateMatrix:
+    """ClusteringInfo.disaggregate() across all dim combinations."""
+
+    def test_roundtrip_via_clustering_property(self, agg_case: AggregateCase):
+        """clustering.disaggregate(reps) == reconstructed (no JSON)."""
+        result = _aggregate(agg_case)
+        dis = result.clustering.disaggregate(result.cluster_representatives)
+        np.testing.assert_allclose(dis.values, result.reconstructed.values, rtol=1e-10)
+
+    def test_roundtrip_via_json(
+        self, agg_case: AggregateCase, tmp_path: pytest.TempPathFactory
+    ):
+        """save → load → disaggregate(reps) == reconstructed."""
+        result = _aggregate(agg_case)
+        loaded = _roundtrip_clustering_via_json(result, tmp_path)
+        dis = loaded.disaggregate(result.cluster_representatives)
+        np.testing.assert_allclose(dis.values, result.reconstructed.values, rtol=1e-10)
+
+    def test_segmented_roundtrip_via_clustering_property(self, agg_case: AggregateCase):
+        """Segmented: clustering.disaggregate(reps).ffill() == reconstructed."""
+        result = _aggregate(agg_case, segments=SegmentConfig(n_segments=6))
+        dis = result.clustering.disaggregate(result.cluster_representatives)
+        assert bool(dis.isnull().any()), "segmented disaggregate should contain NaN"
+        filled = dis.ffill(dim=agg_case.time_dim)
+        np.testing.assert_allclose(
+            filled.values, result.reconstructed.values, rtol=1e-10
+        )
+
+    def test_segmented_roundtrip_via_json(
+        self, agg_case: AggregateCase, tmp_path: pytest.TempPathFactory
+    ):
+        """Segmented: save → load → disaggregate(reps).ffill() == reconstructed."""
+        result = _aggregate(agg_case, segments=SegmentConfig(n_segments=6))
+        loaded = _roundtrip_clustering_via_json(result, tmp_path)
+        dis = loaded.disaggregate(result.cluster_representatives)
+        assert bool(dis.isnull().any()), "segmented disaggregate should contain NaN"
+        filled = dis.ffill(dim=agg_case.time_dim)
+        np.testing.assert_allclose(
+            filled.values, result.reconstructed.values, rtol=1e-10
+        )
+
+    def test_disaggregate_restores_time_dim(self, agg_case: AggregateCase):
+        """Disaggregated output has original time dim, not cluster/timestep."""
+        result = _aggregate(agg_case)
+        dis = result.clustering.disaggregate(result.cluster_representatives)
+        assert agg_case.time_dim in dis.dims
+        assert "cluster" not in dis.dims
+        assert "timestep" not in dis.dims
+        assert dis.sizes[agg_case.time_dim] == agg_case.da.sizes[agg_case.time_dim]
+
+    def test_disaggregate_after_apply(
+        self, agg_case: AggregateCase, tmp_path: pytest.TempPathFactory
+    ):
+        """apply() result can also be disaggregated via clustering."""
+        result = _aggregate(agg_case)
+        loaded = _roundtrip_clustering_via_json(result, tmp_path)
+        applied = loaded.apply(agg_case.da)
+        dis = applied.clustering.disaggregate(applied.cluster_representatives)
+        np.testing.assert_allclose(dis.values, applied.reconstructed.values, rtol=1e-10)
+
+
 class TestClusteringIORoundtrip:
     """save/load/apply preserves results."""
 
