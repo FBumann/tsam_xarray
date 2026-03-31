@@ -436,6 +436,35 @@ class TestClusteringCentersAndSegments:
         assert result.clustering.segment_centers is None
 
 
+class TestClusteringDictRoundtrip:
+    """to_dict/from_dict preserves clustering."""
+
+    def test_dict_roundtrip_assignments(self, agg_case: AggregateCase):
+        result = _aggregate(agg_case)
+        d = result.clustering.to_dict()
+        loaded = tsam_xarray.ClusteringResult.from_dict(d)
+        np.testing.assert_array_equal(
+            result.clustering.cluster_assignments.values,
+            loaded.cluster_assignments.values,
+        )
+
+    def test_dict_roundtrip_occurrences(self, agg_case: AggregateCase):
+        result = _aggregate(agg_case)
+        d = result.clustering.to_dict()
+        loaded = tsam_xarray.ClusteringResult.from_dict(d)
+        np.testing.assert_array_equal(
+            result.clustering.cluster_occurrences.values,
+            loaded.cluster_occurrences.values,
+        )
+
+    def test_dict_roundtrip_disaggregate(self, agg_case: AggregateCase):
+        result = _aggregate(agg_case)
+        d = result.clustering.to_dict()
+        loaded = tsam_xarray.ClusteringResult.from_dict(d)
+        dis = loaded.disaggregate(result.cluster_representatives)
+        np.testing.assert_allclose(dis.values, result.reconstructed.values, rtol=1e-10)
+
+
 class TestClusteringIORoundtrip:
     """save/load/apply preserves results."""
 
