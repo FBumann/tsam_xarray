@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.5.0](https://github.com/FBumann/tsam_xarray/compare/v0.4.0...v0.5.0) (2026-03-31)
+
+
+### ⚠ BREAKING CHANGES
+
+* find_best_combination renamed to grid_search. Old name still works but emits FutureWarning.
+
+### Features
+
+* rename grid_search, add timesteps param, update notebook ([#73](https://github.com/FBumann/tsam_xarray/issues/73)) ([c54c321](https://github.com/FBumann/tsam_xarray/commit/c54c3216991060a4e9d500ac51757467bceaa8e8))
+
 ## [0.4.0](https://github.com/FBumann/tsam_xarray/compare/v0.3.1...v0.4.0) (2026-03-31)
 
 
