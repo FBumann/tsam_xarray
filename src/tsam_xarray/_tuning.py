@@ -442,12 +442,13 @@ def find_optimal_combination(
     )
 
 
-def find_best_combination(
+def grid_search(
     da: Any,
     *,
     time_dim: str,
     cluster_dim: Sequence[str] | str,
     max_timesteps: int | None = None,
+    timesteps: Sequence[int] | None = None,
     weights: Weights = None,
     period_duration: int | float | str = 24,
     show_progress: bool = True,
@@ -467,6 +468,10 @@ def find_best_combination(
         max_timesteps: Maximum total timesteps to test
             (n_clusters * n_segments). Defaults to total
             number of timesteps in the data.
+        timesteps: Specific timestep counts to test. Only
+            combinations where ``n_clusters * n_segments``
+            is in this list are evaluated. Mutually exclusive
+            with ``max_timesteps``.
         weights: Per-coordinate weights for clustering and
             RMSE evaluation.
         period_duration: Hours per period (default: 24).
@@ -484,8 +489,16 @@ def find_best_combination(
         da, time_dim, period_duration
     )
 
-    if max_timesteps is None:
+    if timesteps is not None and max_timesteps is not None:
+        msg = "Cannot specify both 'timesteps' and 'max_timesteps'"
+        raise ValueError(msg)
+
+    if max_timesteps is None and timesteps is None:
         max_timesteps = n_timesteps
+
+    allowed = set(timesteps) if timesteps is not None else None
+    if max_timesteps is None:
+        max_timesteps = max(allowed) if allowed else n_timesteps
 
     # Generate grid of candidates
     # Cap n_clusters at n_periods - 1 (n_periods = trivial perfect fit)
@@ -493,7 +506,8 @@ def find_best_combination(
     candidates: list[tuple[int, int]] = []
     for n_seg in range(1, n_timesteps_per_period + 1):
         for n_clust in range(2, min(max_clusters, max_timesteps // n_seg) + 1):
-            if n_clust * n_seg <= max_timesteps:
+            total = n_clust * n_seg
+            if total <= max_timesteps and (allowed is None or total in allowed):
                 candidates.append((n_clust, n_seg))
 
     if not candidates:
@@ -535,6 +549,7 @@ def find_pareto_front(
     time_dim: str,
     cluster_dim: Sequence[str] | str,
     max_timesteps: int | None = None,
+    timesteps: Sequence[int] | None = None,
     weights: Weights = None,
     period_duration: int | float | str = 24,
     show_progress: bool = True,
@@ -543,7 +558,7 @@ def find_pareto_front(
 ) -> TuningResult:
     """Find Pareto-optimal configs (RMSE vs complexity).
 
-    Runs the same grid search as :func:`find_best_combination`
+    Runs the same grid search as :func:`grid_search`
     but filters the results to the Pareto frontier --
     configurations where no other tested combo has both lower
     RMSE and fewer timesteps.
@@ -555,6 +570,10 @@ def find_pareto_front(
         max_timesteps: Maximum total timesteps to test
             (n_clusters * n_segments). Defaults to total
             number of timesteps in the data.
+        timesteps: Specific timestep counts to test. Only
+            combinations where ``n_clusters * n_segments``
+            is in this list are evaluated. Mutually exclusive
+            with ``max_timesteps``.
         weights: Per-coordinate weights for clustering and
             RMSE evaluation.
         period_duration: Hours per period (default: 24).
@@ -568,11 +587,12 @@ def find_pareto_front(
         Pareto-optimal result with lowest RMSE on the
         frontier.
     """
-    grid = find_best_combination(
+    grid = grid_search(
         da,
         time_dim=time_dim,
         cluster_dim=cluster_dim,
         max_timesteps=max_timesteps,
+        timesteps=timesteps,
         weights=weights,
         period_duration=period_duration,
         show_progress=show_progress,
@@ -647,3 +667,15 @@ def _pareto_filter(
             best_rmse = entry["rmse"]
 
     return pareto_history, pareto_results
+
+
+def find_best_combination(*args: Any, **kwargs: Any) -> TuningResult:
+    """Deprecated alias for :func:`grid_search`."""
+    import warnings
+
+    warnings.warn(
+        "find_best_combination is deprecated, use grid_search instead",
+        FutureWarning,
+        stacklevel=2,
+    )
+    return grid_search(*args, **kwargs)
