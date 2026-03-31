@@ -129,11 +129,17 @@ class TuningResult:
                     "n_clusters": [h["n_clusters"]],
                     "n_segments": [h["n_segments"]],
                 }
+                acc = res.accuracy
                 ds = xr.Dataset(
                     {
-                        "rmse": res.accuracy.rmse.expand_dims(dims),
-                        "mae": res.accuracy.mae.expand_dims(dims),
-                        "rmse_duration": res.accuracy.rmse_duration.expand_dims(dims),
+                        "rmse": acc.rmse.expand_dims(dims),
+                        "mae": acc.mae.expand_dims(dims),
+                        "rmse_duration": acc.rmse_duration.expand_dims(dims),
+                        "weighted_rmse": acc.weighted_rmse.expand_dims(dims),
+                        "weighted_mae": acc.weighted_mae.expand_dims(dims),
+                        "weighted_rmse_duration": (
+                            acc.weighted_rmse_duration.expand_dims(dims)
+                        ),
                     }
                 )
                 datasets.append(ds)
