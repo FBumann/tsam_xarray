@@ -365,6 +365,52 @@ class TestClusteringResultProperties:
         )
 
 
+class TestClusteringCentersAndSegments:
+    """cluster_centers, segment_assignments, segment_centers properties."""
+
+    def test_cluster_centers_dims(self, agg_case: AggregateCase):
+        result = _aggregate(agg_case)
+        da = result.clustering.cluster_centers
+        assert set(da.dims) == {"cluster"} | agg_case.expected_slice_dims
+
+    def test_cluster_centers_values_in_range(self, agg_case: AggregateCase):
+        result = _aggregate(agg_case)
+        centers = result.clustering.cluster_centers
+        assert int(centers.min()) >= 0
+        assert int(centers.max()) < agg_case.n_periods
+
+    def test_cluster_centers_json_roundtrip(
+        self, agg_case: AggregateCase, tmp_path: pytest.TempPathFactory
+    ):
+        result = _aggregate(agg_case)
+        loaded = _roundtrip_clustering_via_json(result, tmp_path)
+        np.testing.assert_array_equal(
+            result.clustering.cluster_centers.values,
+            loaded.cluster_centers.values,
+        )
+
+    def test_segment_assignments_none_without_segments(self, agg_case: AggregateCase):
+        result = _aggregate(agg_case)
+        assert result.clustering.segment_assignments is None
+
+    def test_segment_assignments_dims(self, agg_case: AggregateCase):
+        result = _aggregate(agg_case, segments=SegmentConfig(n_segments=6))
+        da = result.clustering.segment_assignments
+        assert da is not None
+        assert set(da.dims) == {"cluster", "timestep"} | agg_case.expected_slice_dims
+
+    def test_segment_assignments_values_in_range(self, agg_case: AggregateCase):
+        result = _aggregate(agg_case, segments=SegmentConfig(n_segments=6))
+        da = result.clustering.segment_assignments
+        assert da is not None
+        assert int(da.min()) == 0
+        assert int(da.max()) == 5  # n_segments - 1
+
+    def test_segment_centers_none_without_segments(self, agg_case: AggregateCase):
+        result = _aggregate(agg_case)
+        assert result.clustering.segment_centers is None
+
+
 class TestClusteringIORoundtrip:
     """save/load/apply preserves results."""
 
