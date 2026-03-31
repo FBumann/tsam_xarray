@@ -400,14 +400,22 @@ class TestClusteringCentersAndSegments:
         assert set(da.dims) == {"cluster", "timestep"} | agg_case.expected_slice_dims
 
     def test_segment_assignments_values_in_range(self, agg_case: AggregateCase):
-        result = _aggregate(agg_case, segments=SegmentConfig(n_segments=6))
+        n_segments = 6
+        result = _aggregate(agg_case, segments=SegmentConfig(n_segments=n_segments))
         da = result.clustering.segment_assignments
         assert da is not None
         assert int(da.min()) == 0
-        assert int(da.max()) == 5  # n_segments - 1
+        assert int(da.max()) == n_segments - 1
 
     def test_segment_centers_none_without_segments(self, agg_case: AggregateCase):
         result = _aggregate(agg_case)
+        assert result.clustering.segment_centers is None
+
+    def test_segment_centers_none_with_mean_representation(
+        self, agg_case: AggregateCase
+    ):
+        """segment_centers is None with default (mean) segment representation."""
+        result = _aggregate(agg_case, segments=SegmentConfig(n_segments=6))
         assert result.clustering.segment_centers is None
 
 
