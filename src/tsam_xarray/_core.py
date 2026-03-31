@@ -27,36 +27,36 @@ def aggregate(
 ) -> AggregationResult:
     """Aggregate an xarray DataArray using tsam.
 
-    Parameters
-    ----------
-    da : xr.DataArray
-        Input data with a time dimension and optional extra dimensions.
-    time_dim : str
-        Name of the time dimension.
-    cluster_dim : Sequence[str] | str
-        Dimension(s) to cluster together. Multiple dims are stacked
-        internally into a MultiIndex and unstacked in results.
-        All remaining dims are sliced independently.
-        Empty ``()`` for 1D time series with no column dimension.
-    n_clusters : int
-        Number of cluster representatives.
-    weights : dict[str, float] | dict[str, dict[str, float]] | None
-        Per-coordinate weights for clustering. Missing entries default
-        to 1.0. Two formats:
+    Args:
+        da: Input data with a time dimension and optional
+            extra dimensions.
+        time_dim: Name of the time dimension.
+        cluster_dim: Dimension(s) to cluster together.
+            Multiple dims are stacked internally into a
+            MultiIndex and unstacked in results. All remaining
+            dims are sliced independently. Empty ``()`` for 1D
+            time series with no column dimension.
+        n_clusters: Number of cluster representatives.
+        weights: Per-coordinate weights for clustering.
+            Missing entries default to 1.0. Two formats:
 
-        - **Simple dict** (single ``cluster_dim``)::
+            - **Simple dict** (single ``cluster_dim``)::
 
-              weights={"solar": 2.0, "wind": 1.0}
+                  weights={"solar": 2.0, "wind": 1.0}
 
-        - **Dict-of-dicts** (multiple ``cluster_dim``)::
+            - **Dict-of-dicts** (multiple ``cluster_dim``)::
 
-              weights={"variable": {"solar": 2.0}, "region": {"north": 1.5}}
+                  weights={
+                      "variable": {"solar": 2.0},
+                      "region": {"north": 1.5},
+                  }
 
-          Weights are multiplied across dimensions, e.g. ``("solar", "north")``
-          gets weight ``2.0 * 1.5 = 3.0``.
+              Weights are multiplied across dimensions,
+              e.g. ``("solar", "north")`` gets weight
+              ``2.0 * 1.5 = 3.0``.
 
-    **tsam_kwargs
-        Additional keyword arguments passed to ``tsam.aggregate()``.
+        **tsam_kwargs: Additional keyword arguments passed to
+            ``tsam.aggregate()``.
     """
     _validate_time_dim(da, time_dim)
     col_dims = _resolve_cluster_dim(cluster_dim)

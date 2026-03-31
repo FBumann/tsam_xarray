@@ -28,20 +28,16 @@ logger = logging.getLogger(__name__)
 class TuningResult:
     """Result of hyperparameter tuning.
 
-    Attributes
-    ----------
-    n_clusters : int
-        Optimal number of typical periods.
-    n_segments : int
-        Optimal number of segments per period.
-    rmse : float
-        RMSE of the optimal configuration.
-    best_result : AggregationResult
-        The AggregationResult for the optimal configuration.
-    history : list[dict]
-        History of all tested configurations with their RMSE values.
-    all_results : list[AggregationResult]
-        All AggregationResults from tuning (when ``save_all_results=True``).
+    Attributes:
+        n_clusters: Optimal number of typical periods.
+        n_segments: Optimal number of segments per period.
+        rmse: RMSE of the optimal configuration.
+        best_result: The AggregationResult for the optimal
+            configuration.
+        history: History of all tested configurations with
+            their RMSE values.
+        all_results: All AggregationResults from tuning
+            (when ``save_all_results=True``).
     """
 
     n_clusters: int
@@ -378,30 +374,23 @@ def find_optimal_combination(
     Tests all (n_clusters, n_segments) combinations that achieve
     the target data reduction, evaluating each across all slices.
 
-    Parameters
-    ----------
-    da : xr.DataArray
-        Input data.
-    time_dim : str
-        Name of the time dimension.
-    cluster_dim : Sequence[str] | str
-        Dimension(s) to cluster together.
-    data_reduction : float
-        Target data reduction (e.g., 0.01 for 1% of original).
-    weights : dict | None
-        Per-coordinate weights for clustering and RMSE evaluation.
-    period_duration : int | float | str
-        Hours per period (default: 24 for daily).
-    show_progress : bool
-        Show progress bar (requires tqdm).
-    save_all_results : bool
-        Keep all AggregationResults (memory-intensive).
-    **tsam_kwargs
-        Additional keyword arguments passed to ``tsam.aggregate()``.
+    Args:
+        da: Input data.
+        time_dim: Name of the time dimension.
+        cluster_dim: Dimension(s) to cluster together.
+        data_reduction: Target data reduction (e.g., 0.01 for
+            1% of original).
+        weights: Per-coordinate weights for clustering and
+            RMSE evaluation.
+        period_duration: Hours per period (default: 24 for
+            daily).
+        show_progress: Show progress bar (requires tqdm).
+        save_all_results: Keep all AggregationResults
+            (memory-intensive).
+        **tsam_kwargs: Additional keyword arguments passed to
+            ``tsam.aggregate()``.
 
-    Returns
-    -------
-    TuningResult
+    Returns:
         Best combination with lowest overall RMSE.
     """
     n_timesteps_per_period, _n_periods, n_timesteps = _infer_time_params(
@@ -465,38 +454,31 @@ def find_best_combination(
     save_all_results: bool = True,
     **tsam_kwargs: Any,
 ) -> TuningResult:
-    """Full grid search for the best (n_clusters, n_segments) combination.
+    """Full grid search for best (n_clusters, n_segments).
 
     Tests all valid (n_clusters, n_segments) pairs up to
     ``max_timesteps`` and returns the one with the lowest overall
     RMSE.  The complete unfiltered ``history`` is preserved.
 
-    Parameters
-    ----------
-    da : xr.DataArray
-        Input data.
-    time_dim : str
-        Name of the time dimension.
-    cluster_dim : Sequence[str] | str
-        Dimension(s) to cluster together.
-    max_timesteps : int | None
-        Maximum total timesteps to test (n_clusters * n_segments).
-        Defaults to total number of timesteps in the data.
-    weights : dict | None
-        Per-coordinate weights for clustering and RMSE evaluation.
-    period_duration : int | float | str
-        Hours per period (default: 24).
-    show_progress : bool
-        Show progress bar.
-    save_all_results : bool
-        Keep all AggregationResults (memory-intensive).
-    **tsam_kwargs
-        Additional keyword arguments passed to ``tsam.aggregate()``.
+    Args:
+        da: Input data.
+        time_dim: Name of the time dimension.
+        cluster_dim: Dimension(s) to cluster together.
+        max_timesteps: Maximum total timesteps to test
+            (n_clusters * n_segments). Defaults to total
+            number of timesteps in the data.
+        weights: Per-coordinate weights for clustering and
+            RMSE evaluation.
+        period_duration: Hours per period (default: 24).
+        show_progress: Show progress bar.
+        save_all_results: Keep all AggregationResults
+            (memory-intensive).
+        **tsam_kwargs: Additional keyword arguments passed to
+            ``tsam.aggregate()``.
 
-    Returns
-    -------
-    TuningResult
-        Best combination with lowest overall RMSE and full history.
+    Returns:
+        Best combination with lowest overall RMSE and full
+        history.
     """
     n_timesteps_per_period, n_periods, n_timesteps = _infer_time_params(
         da, time_dim, period_duration
@@ -559,38 +541,32 @@ def find_pareto_front(
     save_all_results: bool = True,
     **tsam_kwargs: Any,
 ) -> TuningResult:
-    """Find the Pareto-optimal configurations (RMSE vs complexity).
+    """Find Pareto-optimal configs (RMSE vs complexity).
 
-    Runs the same grid search as :func:`find_best_combination` but
-    filters the results to the Pareto frontier — configurations where
-    no other tested combo has both lower RMSE and fewer timesteps.
+    Runs the same grid search as :func:`find_best_combination`
+    but filters the results to the Pareto frontier --
+    configurations where no other tested combo has both lower
+    RMSE and fewer timesteps.
 
-    Parameters
-    ----------
-    da : xr.DataArray
-        Input data.
-    time_dim : str
-        Name of the time dimension.
-    cluster_dim : Sequence[str] | str
-        Dimension(s) to cluster together.
-    max_timesteps : int | None
-        Maximum total timesteps to test (n_clusters * n_segments).
-        Defaults to total number of timesteps in the data.
-    weights : dict | None
-        Per-coordinate weights for clustering and RMSE evaluation.
-    period_duration : int | float | str
-        Hours per period (default: 24).
-    show_progress : bool
-        Show progress bar.
-    save_all_results : bool
-        Keep all AggregationResults (memory-intensive).
-    **tsam_kwargs
-        Additional keyword arguments passed to ``tsam.aggregate()``.
+    Args:
+        da: Input data.
+        time_dim: Name of the time dimension.
+        cluster_dim: Dimension(s) to cluster together.
+        max_timesteps: Maximum total timesteps to test
+            (n_clusters * n_segments). Defaults to total
+            number of timesteps in the data.
+        weights: Per-coordinate weights for clustering and
+            RMSE evaluation.
+        period_duration: Hours per period (default: 24).
+        show_progress: Show progress bar.
+        save_all_results: Keep all AggregationResults
+            (memory-intensive).
+        **tsam_kwargs: Additional keyword arguments passed to
+            ``tsam.aggregate()``.
 
-    Returns
-    -------
-    TuningResult
-        Pareto-optimal result with lowest RMSE on the frontier.
+    Returns:
+        Pareto-optimal result with lowest RMSE on the
+        frontier.
     """
     grid = find_best_combination(
         da,

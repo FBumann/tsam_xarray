@@ -27,16 +27,41 @@ class ClusteringResult:
 
     Wraps one or more tsam ``ClusteringResult`` objects alongside
     the dimension names needed to apply the clustering to new data.
-    Exposes clustering metadata as xarray DataArrays.
+    Exposes clustering metadata as cached xarray DataArrays.
+
+    Attributes:
+        time_dim: Name of the time dimension.
+        cluster_dim: Dimension(s) clustered together.
+        slice_dims: Dimension(s) aggregated independently.
+        clusterings: Per-slice tsam clustering.
+            Single entry ``{(): result}`` when no slicing.
+        time_coords: Original time coordinates.
+            Needed for ``disaggregate()``.
+        n_clusters: Number of clusters.
+        n_original_periods: Number of original periods.
+        n_timesteps_per_period: Timesteps per period.
+        n_segments: Segments per period, or ``None``.
+        cluster_assignments: Cluster ID per period.
+            Dims: ``(period, *slice_dims)``.
+        cluster_occurrences: Periods per cluster.
+            Dims: ``(cluster, *slice_dims)``.
+        cluster_centers: Representative period per cluster.
+            Dims: ``(cluster, *slice_dims)``.
+        segment_durations: Duration per segment, or ``None``.
+            Dims: ``(cluster, timestep, *slice_dims)``.
+        segment_assignments: Segment ID per timestep, or
+            ``None``. Dims: ``(cluster, timestep,
+            *slice_dims)``.
+        segment_centers: Representative timestep per segment,
+            or ``None``.
+            Dims: ``(cluster, segment, *slice_dims)``.
     """
 
     time_dim: str
     cluster_dim: list[str]
     slice_dims: list[str]
     clusterings: dict[tuple[Hashable, ...], tsam.ClusteringResult]
-    """Per-slice tsam clustering. Single entry ``{(): result}`` when no slicing."""
     time_coords: pd.DatetimeIndex | None = field(default=None, repr=False)
-    """Original time coordinates. Needed for :meth:`disaggregate`."""
     _cache: dict[str, Any] = field(
         default_factory=dict, repr=False, init=False, compare=False
     )
@@ -315,23 +340,18 @@ class ClusteringResult:
     ) -> Any:
         """Apply this clustering to new data.
 
-        Parameters
-        ----------
-        da : xr.DataArray
-            New data with compatible time dimension length.
-        time_dim : str | None
-            Time dimension name. Defaults to the stored value.
-        cluster_dim : Sequence[str] | str | None
-            Cluster dimension(s). Defaults to the stored value.
-            Can differ from the original if the new data has
-            different dimension names.
-        **tsam_kwargs
-            Additional keyword arguments passed to
-            ``ClusteringResult.apply()``.
+        Args:
+            da: New data with compatible time dimension
+                length.
+            time_dim: Time dimension name. Defaults to the
+                stored value.
+            cluster_dim: Cluster dimension(s). Defaults to the
+                stored value. Can differ from the original if
+                the new data has different dimension names.
+            **tsam_kwargs: Additional keyword arguments passed
+                to ``ClusteringResult.apply()``.
 
-        Returns
-        -------
-        AggregationResult
+        Returns:
             Aggregation result using the stored clustering.
         """
         from tsam_xarray._result import AggregationResult
@@ -375,27 +395,24 @@ class ClusteringResult:
         data computed on the compact cluster-representative grid
         (e.g., optimization results) back to the full time axis.
 
-        Unlike ``AggregationResult.disaggregate()``, this method works
-        on a ``ClusteringInfo`` loaded from JSON — no original data needed.
+        Unlike ``AggregationResult.disaggregate()``, this method
+        works on a ``ClusteringInfo`` loaded from JSON — no
+        original data needed.
 
-        Parameters
-        ----------
-        data : xr.DataArray
-            Data with ``cluster`` and ``timestep`` dims, matching the
-            shape of the original cluster representatives. Additional dims
-            (including auto-sliced dims like scenario) are supported.
+        Args:
+            data: Data with ``cluster`` and ``timestep`` dims,
+                matching the shape of the original cluster
+                representatives. Additional dims (including
+                auto-sliced dims like scenario) are supported.
 
-        Returns
-        -------
-        xr.DataArray
-            Data with ``cluster`` and ``timestep`` replaced by the
-            original ``time`` dimension.
+        Returns:
+            Data with ``cluster`` and ``timestep`` replaced by
+            the original ``time`` dimension.
 
-        Raises
-        ------
-        ValueError
-            If time coordinates are not available (e.g., loaded
-            from an old JSON that predates this feature).
+        Raises:
+            ValueError: If time coordinates are not available
+                (e.g., loaded from an old JSON that predates
+                this feature).
         """
         if self.time_coords is None:
             msg = (
@@ -431,13 +448,10 @@ class ClusteringResult:
     def to_json(self, path: str | Path, **json_kwargs: Any) -> None:
         """Save clustering to JSON file.
 
-        Parameters
-        ----------
-        path : str or Path
-            Output file path.
-        **json_kwargs
-            Additional keyword arguments passed to ``json.dump()``.
-            Default: ``indent=2``.
+        Args:
+            path: Output file path.
+            **json_kwargs: Additional keyword arguments passed
+                to ``json.dump()``. Default: ``indent=2``.
         """
         entries = []
         for key, cr in self.clusterings.items():
@@ -463,14 +477,11 @@ class ClusteringResult:
     def from_json(cls, path: str | Path) -> ClusteringResult:
         """Load clustering from JSON file.
 
-        Parameters
-        ----------
-        path : str or Path
-            Input file path.
+        Args:
+            path: Input file path.
 
-        Returns
-        -------
-        ClusteringResult
+        Returns:
+            The loaded ``ClusteringResult``.
         """
         with Path(path).open() as f:
             data = json.load(f)

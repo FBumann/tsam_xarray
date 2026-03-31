@@ -46,6 +46,7 @@ theme:
 nav:
   - Home:
     - index.md
+    - Data Model: data-model.md
     - Changelog: changelog.md
   - Examples:
     - Getting Started: examples/getting-started.ipynb
@@ -69,6 +70,7 @@ plugins:
             show_root_heading: true
             members_order: source
             docstring_style: google
+            docstring_section_style: table
             show_symbol_type_heading: true
             show_symbol_type_toc: true
             separate_signature: true

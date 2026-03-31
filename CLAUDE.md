@@ -49,3 +49,4 @@ uv run mkdocs build             # docs (build)
 - Conventional commits: `feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`
 - PRs to main — branch protection requires CI Success check
 - release-please handles versioning (pre-v1 alpha mode)
+- **Google-style docstrings** — `Args:`, `Returns:`, `Raises:`, `Attributes:` (not NumPy style)

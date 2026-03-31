@@ -15,26 +15,23 @@ def sample_energy_data(
 
     Returns an hourly DataArray with dimensions:
 
-    - **time** — hourly timestamps
-    - **variable** — ``solar``, ``wind``, ``demand``
-    - **region** — ``north``, ``south``, ``east``
-    - **scenario** — ``low``, ``high``
+    - **time** -- hourly timestamps
+    - **variable** -- ``solar``, ``wind``, ``demand``
+    - **region** -- ``north``, ``south``, ``east``
+    - **scenario** -- ``low``, ``high``
 
     Solar follows a daily bell curve, wind has seasonal variation
-    with autocorrelation, and demand combines a daily commute pattern
-    with weather-driven noise. Scenarios scale the base profiles.
+    with autocorrelation, and demand combines a daily commute
+    pattern with weather-driven noise. Scenarios scale the base
+    profiles.
 
-    Parameters
-    ----------
-    n_days : int
-        Number of days of hourly data (default: 30).
-    seed : int
-        Random seed for reproducibility (default: 42).
+    Args:
+        n_days: Number of days of hourly data (default: 30).
+        seed: Random seed for reproducibility (default: 42).
 
-    Returns
-    -------
-    xr.DataArray
-        Shape ``(n_days * 24, 3, 3, 2)`` with coords on every dim.
+    Returns:
+        Shape ``(n_days * 24, 3, 3, 2)`` with coords on
+        every dim.
     """
     rng = np.random.default_rng(seed)
     hours = n_days * 24
