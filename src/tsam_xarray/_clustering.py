@@ -179,6 +179,132 @@ class ClusteringResult:
             das.append(da)
         return _concat_along_dims(das, self.slice_dims, sc)
 
+    @property
+    def cluster_centers(self) -> xr.DataArray:
+        """Representative period index for each cluster.
+
+        Dims: ``(cluster, *slice_dims)``.
+        """
+        if "cluster_centers" not in self._cache:
+            self._cache["cluster_centers"] = self._build_cluster_centers()
+        result: xr.DataArray = self._cache["cluster_centers"]
+        return result
+
+    def _build_cluster_centers(self) -> xr.DataArray:
+        def _single(cr: tsam.ClusteringResult) -> xr.DataArray:
+            centers = cr.cluster_centers
+            if centers is None:
+                msg = "No cluster centers available."
+                raise ValueError(msg)
+            return xr.DataArray(
+                list(centers),
+                dims=["cluster"],
+                coords={"cluster": np.arange(cr.n_clusters)},
+            )
+
+        if not self.slice_dims:
+            return _single(self.clusterings[()])
+
+        import itertools
+
+        sc = self._slice_coords
+        keys = list(itertools.product(*(sc[d] for d in self.slice_dims)))
+        arrays = [_single(self.clusterings[k]) for k in keys]
+        return _concat_along_dims(arrays, self.slice_dims, sc)
+
+    @property
+    def segment_assignments(self) -> xr.DataArray | None:
+        """Segment assignment for each timestep per cluster, or None.
+
+        Dims: ``(cluster, timestep, *slice_dims)``.
+        """
+        if "segment_assignments" not in self._cache:
+            self._cache["segment_assignments"] = self._build_segment_assignments()
+        result: xr.DataArray | None = self._cache["segment_assignments"]
+        return result
+
+    def _build_segment_assignments(self) -> xr.DataArray | None:
+        def _single(cr: tsam.ClusteringResult) -> xr.DataArray | None:
+            if cr.segment_assignments is None:
+                return None
+            return xr.DataArray(
+                np.array(cr.segment_assignments),
+                dims=["cluster", "timestep"],
+                coords={
+                    "cluster": np.arange(cr.n_clusters),
+                    "timestep": np.arange(cr.n_timesteps_per_period),
+                },
+            )
+
+        if not self.slice_dims:
+            return _single(self.clusterings[()])
+
+        import itertools
+
+        sc = self._slice_coords
+        keys = list(itertools.product(*(sc[d] for d in self.slice_dims)))
+        first = _single(self.clusterings[keys[0]])
+        if first is None:
+            return None
+        das: list[xr.DataArray] = [first]
+        for k in keys[1:]:
+            da = _single(self.clusterings[k])
+            if da is None:
+                msg = (
+                    f"Slice {k} has no segment assignments but the first "
+                    f"slice does. Segmentation must be uniform across slices."
+                )
+                raise ValueError(msg)
+            das.append(da)
+        return _concat_along_dims(das, self.slice_dims, sc)
+
+    @property
+    def segment_centers(self) -> xr.DataArray | None:
+        """Representative timestep index for each segment per cluster, or None.
+
+        Dims: ``(cluster, segment, *slice_dims)``.
+        """
+        if "segment_centers" not in self._cache:
+            self._cache["segment_centers"] = self._build_segment_centers()
+        result: xr.DataArray | None = self._cache["segment_centers"]
+        return result
+
+    def _build_segment_centers(self) -> xr.DataArray | None:
+        def _single(cr: tsam.ClusteringResult) -> xr.DataArray | None:
+            if cr.segment_centers is None:
+                return None
+            n_segments = cr.n_segments or len(cr.segment_centers[0])
+            return xr.DataArray(
+                np.array(cr.segment_centers),
+                dims=["cluster", "segment"],
+                coords={
+                    "cluster": np.arange(cr.n_clusters),
+                    "segment": np.arange(n_segments),
+                },
+            )
+
+        if not self.slice_dims:
+            return _single(self.clusterings[()])
+
+        import itertools
+
+        sc = self._slice_coords
+        keys = list(itertools.product(*(sc[d] for d in self.slice_dims)))
+        first = _single(self.clusterings[keys[0]])
+        if first is None:
+            return None
+        das: list[xr.DataArray] = [first]
+        for k in keys[1:]:
+            da = _single(self.clusterings[k])
+            if da is None:
+                msg = (
+                    f"Slice {k} has no segment centers but the first "
+                    f"slice does. Segmentation must be uniform across slices."
+                )
+                raise ValueError(msg)
+            das.append(da)
+        return _concat_along_dims(das, self.slice_dims, sc)
+
     def apply(
         self,
         da: xr.DataArray,
