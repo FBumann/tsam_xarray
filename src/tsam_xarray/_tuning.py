@@ -318,7 +318,7 @@ def _evaluate_candidates(
                 period_duration=period_duration,
                 **tsam_kwargs,
             )
-            rmse = result.accuracy.weighted_rmse
+            rmse = float(result.accuracy.weighted_rmse.mean())
             history.append(
                 {
                     "n_clusters": n_clust,

@@ -22,25 +22,35 @@ class AccuracyMetrics:
             Dims: ``(*cluster_dims, *slice_dims)``.
         rmse_duration: Per-column duration-curve RMSE.
             Dims: ``(*cluster_dims, *slice_dims)``.
-        weighted_rmse: Scalar RMSE weighted by column weights.
-        weighted_mae: Scalar MAE weighted by column weights.
-        weighted_rmse_duration: Scalar duration-curve RMSE
-            weighted by column weights.
+        weighted_rmse: RMSE weighted across columns.
+            Dims: ``(*slice_dims)`` or scalar.
+        weighted_mae: MAE weighted across columns.
+            Dims: ``(*slice_dims)`` or scalar.
+        weighted_rmse_duration: Duration-curve RMSE weighted
+            across columns.
+            Dims: ``(*slice_dims)`` or scalar.
     """
 
     rmse: xr.DataArray
     mae: xr.DataArray
     rmse_duration: xr.DataArray
-    weighted_rmse: float = 0.0
-    weighted_mae: float = 0.0
-    weighted_rmse_duration: float = 0.0
+    weighted_rmse: xr.DataArray
+    weighted_mae: xr.DataArray
+    weighted_rmse_duration: xr.DataArray
 
     def __repr__(self) -> str:
+        def _fmt(da: xr.DataArray) -> str:
+            mean = float(da.mean())
+            if da.size <= 1:
+                return f"{mean:.4f}"
+            return f"{mean:.4f} [{float(da.min()):.4f}-{float(da.max()):.4f}]"
+
         return (
             f"AccuracyMetrics("
-            f"weighted_rmse={self.weighted_rmse:.4f}, "
-            f"weighted_mae={self.weighted_mae:.4f}, "
-            f"weighted_rmse_duration={self.weighted_rmse_duration:.4f})"
+            f"weighted_rmse={_fmt(self.weighted_rmse)}, "
+            f"weighted_mae={_fmt(self.weighted_mae)}, "
+            f"weighted_rmse_duration="
+            f"{_fmt(self.weighted_rmse_duration)})"
         )
 
 
@@ -89,7 +99,7 @@ class AggregationResult:
             f"n_periods={c.n_original_periods}, "
             f"cluster_dim={c.cluster_dim}"
             f"{slices}{seg}, "
-            f"weighted_rmse={self.accuracy.weighted_rmse:.4f})"
+            f"weighted_rmse={float(self.accuracy.weighted_rmse.mean()):.4f})"
         )
 
     @property
@@ -185,9 +195,9 @@ class AggregationResult:
                 rmse=self.accuracy.rmse.sel(sel),
                 mae=self.accuracy.mae.sel(sel),
                 rmse_duration=self.accuracy.rmse_duration.sel(sel),
-                weighted_rmse=self.accuracy.weighted_rmse,
-                weighted_mae=self.accuracy.weighted_mae,
-                weighted_rmse_duration=self.accuracy.weighted_rmse_duration,
+                weighted_rmse=self.accuracy.weighted_rmse.sel(sel),
+                weighted_mae=self.accuracy.weighted_mae.sel(sel),
+                weighted_rmse_duration=self.accuracy.weighted_rmse_duration.sel(sel),
             ),
             reconstructed=self.reconstructed.sel(sel),
             original=self.original.sel(sel),
