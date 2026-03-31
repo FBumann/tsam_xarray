@@ -8,6 +8,7 @@ from tsam_xarray._tuning import (
     find_best_combination,
     find_optimal_combination,
     find_pareto_front,
+    grid_search,
 )
 
 load_clustering = ClusteringResult.from_json
@@ -22,5 +23,6 @@ __all__ = [
     "find_best_combination",
     "find_optimal_combination",
     "find_pareto_front",
+    "grid_search",
     "load_clustering",
 ]

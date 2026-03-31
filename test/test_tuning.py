@@ -50,7 +50,7 @@ def optimal_result(da):
 
 @pytest.fixture(scope="module")
 def grid_result(da):
-    return tsam_xarray.find_best_combination(
+    return tsam_xarray.grid_search(
         da,
         time_dim="time",
         cluster_dim="variable",
@@ -160,6 +160,41 @@ class TestFindBestCombination:
     def test_best_matches_pareto_best(self, grid_result, pareto_result):
         """Grid search best should equal Pareto front best."""
         np.testing.assert_allclose(grid_result.rmse, pareto_result.rmse)
+
+    def test_timesteps_filter(self):
+        da = _make_da(n_days=10)
+        result = tsam_xarray.grid_search(
+            da,
+            time_dim="time",
+            cluster_dim="variable",
+            timesteps=[4, 8, 12],
+            show_progress=False,
+        )
+        for h in result.history:
+            assert h["timesteps"] in {4, 8, 12}
+
+    def test_timesteps_and_max_timesteps_exclusive(self):
+        da = _make_da(n_days=10)
+        with pytest.raises(ValueError, match="Cannot specify both"):
+            tsam_xarray.grid_search(
+                da,
+                time_dim="time",
+                cluster_dim="variable",
+                max_timesteps=24,
+                timesteps=[4, 8],
+                show_progress=False,
+            )
+
+    def test_deprecated_alias(self):
+        da = _make_da(n_days=10)
+        with pytest.warns(FutureWarning, match="grid_search"):
+            tsam_xarray.find_best_combination(
+                da,
+                time_dim="time",
+                cluster_dim="variable",
+                max_timesteps=12,
+                show_progress=False,
+            )
 
 
 class TestFindParetoFront:
