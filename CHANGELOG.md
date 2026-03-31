@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/FBumann/tsam_xarray/compare/v0.3.0...v0.3.1) (2026-03-31)
+
+
+### Features
+
+* add cluster_centers, segment_assignments, segment_centers to ClusteringResult ([#68](https://github.com/FBumann/tsam_xarray/issues/68)) ([8b0087e](https://github.com/FBumann/tsam_xarray/commit/8b0087e55b888130e329032d26c795fe33cd63cc))
+
 ## [0.3.0](https://github.com/FBumann/tsam_xarray/compare/v0.2.0...v0.3.0) (2026-03-30)
 
 
