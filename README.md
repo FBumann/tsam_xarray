@@ -7,90 +7,85 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Docs](https://img.shields.io/badge/docs-readthedocs-blue)](https://tsam-xarray.readthedocs.io/)
 
-Lightweight [xarray](https://xarray.dev/) wrapper for [tsam](https://github.com/FZJ-IEK3-VSA/tsam) time series aggregation.
+**DataArray in, DataArray out** — multi-dimensional time series aggregation with [tsam](https://github.com/FZJ-IEK3-VSA/tsam) and [xarray](https://xarray.dev/).
 
-**DataArray in, DataArray out** — no manual DataFrame conversions, no MultiIndex wrangling, no loop-and-concat boilerplate.
+## The problem
+
+Energy system data is multi-dimensional — variables, regions, scenarios, years. Some dimensions should be **clustered together** (solar and wind profiles in the same region should see the same typical days), while others need **independent clustering** (each scenario has its own weather patterns).
+
+![Multi-dimensional input data](docs/assets/multi-dim-input.png)
+
+tsam works on flat DataFrames. With multi-dimensional data, you end up writing boilerplate: loop over scenarios, convert to DataFrame, aggregate, extract results, convert back, concatenate, hope the dims line up. Accuracy metrics come back as unlabeled `pd.Series`. Saving a clustering means managing raw dicts.
+
+## The solution
+
+```python
+import tsam_xarray
+
+result = tsam_xarray.aggregate(
+    da,                                    # (time, variable, region, scenario)
+    time_dim="time",
+    cluster_dim=["variable", "region"],    # clustered together
+    n_clusters=4,
+)
+# scenario is sliced independently — each gets its own clustering
+```
+
+Everything comes back as labeled xarray objects:
+
+```python
+result.cluster_representatives   # (scenario, cluster, timestep, variable, region)
+result.reconstructed             # same shape as input
+result.cluster_assignments       # (scenario, period)
+```
+
+Accuracy metrics preserve all dimensions — see exactly where the approximation is good or bad:
+
+![Per-column RMSE across all dimensions](docs/assets/multi-dim-metrics.png)
+
+```python
+result.accuracy.rmse             # DataArray (scenario, variable, region)
+result.accuracy.weighted_rmse    # DataArray (scenario,) — per-slice summary
+```
+
+## Save, load, reuse
+
+```python
+# Save clustering (not the data — just the mapping)
+result.clustering.to_json("clustering.json")
+
+# Load and inspect — no original data needed
+clustering = tsam_xarray.load_clustering("clustering.json")
+clustering.n_clusters              # 4
+clustering.cluster_assignments     # DataArray (scenario, period)
+clustering.cluster_occurrences     # DataArray (scenario, cluster)
+
+# Apply to new data or disaggregate optimization results
+new_result = clustering.apply(new_da)
+full_timeseries = clustering.disaggregate(optimized_data)
+```
+
+## Tuning
+
+Find optimal hyperparameters across all slices:
+
+```python
+grid = tsam_xarray.grid_search(
+    da,
+    time_dim="time",
+    cluster_dim=["variable", "region"],
+    timesteps=np.geomspace(2, 48, num=12, dtype=int),  # sparse search
+)
+grid.summary_matrix["rmse"]        # heatmap-ready (n_clusters, n_segments)
+grid.accuracy["weighted_rmse"]     # per-slice weighted RMSE for every config
+```
 
 ## Installation
 
 ```bash
-pip install tsam_xarray
-```
-
-## Quick start
-
-```python
-import numpy as np
-import pandas as pd
-import xarray as xr
-import tsam_xarray
-
-# Create sample data: 30 days of hourly solar and wind data
-time = pd.date_range("2020-01-01", periods=30 * 24, freq="h")
-da = xr.DataArray(
-    np.random.default_rng(42).random((len(time), 2)),
-    dims=["time", "variable"],
-    coords={"time": time, "variable": ["solar", "wind"]},
-)
-
-# Aggregate to 4 typical days
-result = tsam_xarray.aggregate(
-    da, time_dim="time", cluster_dim="variable", n_clusters=4,
-)
-
-result.cluster_representatives   # (cluster, timestep, variable)
-result.cluster_weights   # (cluster,) — days each cluster represents
-result.accuracy.rmse     # (variable,) — per-variable RMSE
-result.reconstructed     # same shape as input
-```
-
-## Multi-dimensional data
-
-```python
-# Cluster variable x region together; scenario is sliced independently
-result = tsam_xarray.aggregate(
-    da,
-    time_dim="time",
-    cluster_dim=["variable", "region"],
-    n_clusters=8,
-)
-
-result.cluster_representatives  # (scenario, cluster, timestep, variable, region)
-```
-
-## Weights
-
-```python
-# Single cluster_dim — simple dict
-result = tsam_xarray.aggregate(
-    da, time_dim="time", cluster_dim="variable", n_clusters=8,
-    weights={"solar": 2.0, "wind": 1.0},
-)
-
-# Multiple cluster_dim — dict-of-dicts
-result = tsam_xarray.aggregate(
-    da, time_dim="time", cluster_dim=["variable", "region"], n_clusters=8,
-    weights={"variable": {"solar": 2.0}, "region": {"north": 1.5}},
-)
-```
-
-## tsam passthrough
-
-All [tsam.aggregate()](https://github.com/FZJ-IEK3-VSA/tsam) keyword arguments pass through:
-
-```python
-from tsam import ClusterConfig, SegmentConfig
-
-result = tsam_xarray.aggregate(
-    da,
-    time_dim="time",
-    cluster_dim="variable",
-    n_clusters=8,
-    cluster=ClusterConfig(method="kmeans"),
-    segments=SegmentConfig(n_segments=6),
-)
+pip install tsam-xarray
 ```
 
 ## Documentation
 
-Full docs with interactive examples: [tsam-xarray.readthedocs.io](https://tsam-xarray.readthedocs.io/)
+Full docs with interactive examples: **[tsam-xarray.readthedocs.io](https://tsam-xarray.readthedocs.io/)**
