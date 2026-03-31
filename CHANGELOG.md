@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.0](https://github.com/FBumann/tsam_xarray/compare/v0.3.1...v0.4.0) (2026-03-31)
+
+
+### ⚠ BREAKING CHANGES
+
+* AccuracyMetrics.weighted_rmse, weighted_mae, weighted_rmse_duration changed from float to xr.DataArray.
+
+### Features
+
+* make weighted accuracy metrics per-slice DataArrays ([#71](https://github.com/FBumann/tsam_xarray/issues/71)) ([5540913](https://github.com/FBumann/tsam_xarray/commit/5540913ce2cb9dd95c440250d6390426fa977f4b))
+
 ## [0.3.1](https://github.com/FBumann/tsam_xarray/compare/v0.3.0...v0.3.1) (2026-03-31)
 
 
