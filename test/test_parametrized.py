@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import xarray as xr
 from conftest import AggregateCase
 from tsam import SegmentConfig
 
@@ -111,6 +112,22 @@ class TestAccuracyMetrics:
         original_std = float(agg_case.da.std())
         max_rmse = float(result.accuracy.rmse.max())
         assert max_rmse < original_std * 2  # generous bound
+
+    def test_weighted_rmse_is_dataarray(self, agg_case: AggregateCase):
+        result = _aggregate(agg_case)
+        assert isinstance(result.accuracy.weighted_rmse, xr.DataArray)
+        assert isinstance(result.accuracy.weighted_mae, xr.DataArray)
+        assert isinstance(result.accuracy.weighted_rmse_duration, xr.DataArray)
+
+    def test_weighted_rmse_dims(self, agg_case: AggregateCase):
+        """Weighted metrics have slice_dims only (no cluster_dims)."""
+        result = _aggregate(agg_case)
+        assert set(result.accuracy.weighted_rmse.dims) == agg_case.expected_slice_dims
+
+    def test_weighted_rmse_positive(self, agg_case: AggregateCase):
+        result = _aggregate(agg_case)
+        assert float(result.accuracy.weighted_rmse.min()) > 0
+        assert float(result.accuracy.weighted_mae.min()) > 0
 
 
 class TestReconstructedValues:
