@@ -37,5 +37,6 @@ pip install tsam_xarray
 ## Next steps
 
 - [Getting Started](examples/getting-started.ipynb) — basic workflow
+- [Data Model](data-model.md) — understand the result objects and their attributes
 - [Multi-Dimensional Data](examples/multi-dim.ipynb) — stacking, slicing, weights
 - [API Reference](api/) — full function and class documentation

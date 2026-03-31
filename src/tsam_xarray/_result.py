@@ -13,7 +13,20 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, repr=False)
 class AccuracyMetrics:
-    """Accuracy metrics from time series aggregation."""
+    """Accuracy metrics from time series aggregation.
+
+    Attributes:
+        rmse: Per-column RMSE.
+            Dims: ``(*cluster_dims, *slice_dims)``.
+        mae: Per-column MAE.
+            Dims: ``(*cluster_dims, *slice_dims)``.
+        rmse_duration: Per-column duration-curve RMSE.
+            Dims: ``(*cluster_dims, *slice_dims)``.
+        weighted_rmse: Scalar RMSE weighted by column weights.
+        weighted_mae: Scalar MAE weighted by column weights.
+        weighted_rmse_duration: Scalar duration-curve RMSE
+            weighted by column weights.
+    """
 
     rmse: xr.DataArray
     mae: xr.DataArray
@@ -33,7 +46,28 @@ class AccuracyMetrics:
 
 @dataclass(frozen=True, repr=False)
 class AggregationResult:
-    """Result of tsam_xarray.aggregate()."""
+    """Result of ``tsam_xarray.aggregate()``.
+
+    Attributes:
+        cluster_representatives: Typical periods.
+            Dims: ``(cluster, timestep, *cluster_dims,
+            *slice_dims)``.
+        cluster_assignments: Which cluster each period
+            belongs to. Dims: ``(period, *slice_dims)``.
+        cluster_weights: Periods per cluster.
+            Dims: ``(cluster, *slice_dims)``.
+        segment_durations: Duration of each segment, or
+            ``None``. Dims: ``(cluster, timestep,
+            *slice_dims)``.
+        accuracy: Per-column and weighted accuracy metrics.
+        reconstructed: Reconstructed time series
+            (same shape as input).
+        original: The input data.
+        clustering: Reusable clustering metadata.
+            See `ClusteringResult`.
+        is_transferred: Whether this result came from
+            ``apply()`` vs ``aggregate()``.
+    """
 
     cluster_representatives: xr.DataArray
     cluster_assignments: xr.DataArray
@@ -84,26 +118,26 @@ class AggregationResult:
         """Map data on ``(cluster, timestep)`` back to original time.
 
         This is the inverse of ``aggregate()``. Use it to expand
-        external data computed on the compact cluster-representative grid
-        (e.g., optimization results) back to the full time axis.
+        external data computed on the compact cluster-representative
+        grid (e.g., optimization results) back to the full time
+        axis.
 
         Without segmentation, values are repeated for each timestep
-        in the period. With segmentation, values are placed at segment
-        boundaries and remaining timesteps are NaN — use
-        ``.ffill(dim="time")``, ``.interpolate_na(dim="time")``, etc.
+        in the period. With segmentation, values are placed at
+        segment boundaries and remaining timesteps are NaN — use
+        ``.ffill(dim="time")``,
+        ``.interpolate_na(dim="time")``, etc.
 
-        Parameters
-        ----------
-        data : xr.DataArray
-            Data with ``cluster`` and ``timestep`` dims, matching the
-            shape of ``result.cluster_representatives``. Additional dims
-            (including auto-sliced dims like scenario) are supported.
+        Args:
+            data: Data with ``cluster`` and ``timestep`` dims,
+                matching the shape of
+                ``result.cluster_representatives``. Additional
+                dims (including auto-sliced dims like scenario)
+                are supported.
 
-        Returns
-        -------
-        xr.DataArray
-            Data with ``cluster`` and ``timestep`` replaced by the
-            original ``time`` dimension.
+        Returns:
+            Data with ``cluster`` and ``timestep`` replaced by
+            the original ``time`` dimension.
         """
         # Use stored slice_dims for canonical ordering
         slice_dims = self.clustering.slice_dims
