@@ -445,13 +445,12 @@ class ClusteringResult:
 
         return _concat_along_dims(results, slice_dims, slice_coords)
 
-    def to_json(self, path: str | Path, **json_kwargs: Any) -> None:
-        """Save clustering to JSON file.
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize clustering to a dictionary.
 
-        Args:
-            path: Output file path.
-            **json_kwargs: Additional keyword arguments passed
-                to ``json.dump()``. Default: ``indent=2``.
+        Returns:
+            Plain dict suitable for ``json.dump()`` or
+            storage in databases, APIs, etc.
         """
         entries = []
         for key, cr in self.clusterings.items():
@@ -469,23 +468,29 @@ class ClusteringResult:
         }
         if self.time_coords is not None:
             data["time_coords"] = [t.isoformat() for t in self.time_coords]
+        return data
 
-        with Path(path).open("w") as f:
-            json.dump(data, f, **json_kwargs)
-
-    @classmethod
-    def from_json(cls, path: str | Path) -> ClusteringResult:
-        """Load clustering from JSON file.
+    def to_json(self, path: str | Path, **json_kwargs: Any) -> None:
+        """Save clustering to JSON file.
 
         Args:
-            path: Input file path.
+            path: Output file path.
+            **json_kwargs: Additional keyword arguments passed
+                to ``json.dump()``. Default: ``indent=2``.
+        """
+        with Path(path).open("w") as f:
+            json.dump(self.to_dict(), f, **json_kwargs)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ClusteringResult:
+        """Load clustering from a dictionary.
+
+        Args:
+            data: Dict as returned by :meth:`to_dict`.
 
         Returns:
             The loaded ``ClusteringResult``.
         """
-        with Path(path).open() as f:
-            data = json.load(f)
-
         clusterings: dict[tuple[Hashable, ...], tsam.ClusteringResult] = {}
         for entry in data["clusterings"]:
             key = tuple(entry["key"])
@@ -502,6 +507,19 @@ class ClusteringResult:
             clusterings=clusterings,
             time_coords=time_coords,
         )
+
+    @classmethod
+    def from_json(cls, path: str | Path) -> ClusteringResult:
+        """Load clustering from JSON file.
+
+        Args:
+            path: Input file path.
+
+        Returns:
+            The loaded ``ClusteringResult``.
+        """
+        with Path(path).open() as f:
+            return cls.from_dict(json.load(f))
 
 
 ClusteringInfo = ClusteringResult
