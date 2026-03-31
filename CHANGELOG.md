@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/FBumann/tsam_xarray/compare/v0.5.0...v0.5.1) (2026-03-31)
+
+
+### Features
+
+* add to_dict/from_dict on ClusteringResult ([#75](https://github.com/FBumann/tsam_xarray/issues/75)) ([24723a8](https://github.com/FBumann/tsam_xarray/commit/24723a82b0daa9eacdaa98e2ee300b9e44697bd6))
+
 ## [0.5.0](https://github.com/FBumann/tsam_xarray/compare/v0.4.0...v0.5.0) (2026-03-31)
 
 
