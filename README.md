@@ -77,7 +77,7 @@ grid = tsam_xarray.grid_search(
     timesteps=np.geomspace(2, 48, num=12, dtype=int),  # sparse search
 )
 grid.summary_matrix["rmse"]        # heatmap-ready (n_clusters, n_segments)
-grid.accuracy["weighted_rmse"]     # per-slice RMSE for every tested config
+grid.accuracy["weighted_rmse"]     # per-slice weighted RMSE for every config
 ```
 
 ## Installation
