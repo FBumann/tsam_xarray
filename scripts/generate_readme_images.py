@@ -14,7 +14,7 @@ def generate_input_plot() -> None:
     """Multi-dimensional input data plot."""
     da = sample_energy_data(n_days=30)
     fig = da.plotly.line(
-        x="time", color="variable", facet_row="region", facet_col="scenario"
+        x="time", color="variable", facet_row="scenario", facet_col="region"
     )
     fig.update_layout(
         height=400,
