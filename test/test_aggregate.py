@@ -1353,7 +1353,10 @@ class TestClusteringDisaggregate:
         with open(path) as f:
             data = json.load(f)
         assert "time_coords" in data
-        assert len(data["time_coords"]) == da_flat.sizes["time"]
+        tc = data["time_coords"]
+        # Regular index → compact dict format
+        assert isinstance(tc, dict)
+        assert tc["periods"] == da_flat.sizes["time"]
 
     def test_time_coords_roundtrip(self, tmp_path):
         """time_coords survive JSON round-trip."""

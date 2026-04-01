@@ -21,6 +21,25 @@ from tsam_xarray._core import (
 )
 
 
+def _time_coords_to_dict(tc: pd.DatetimeIndex) -> dict[str, Any] | list[str]:
+    """Serialize a DatetimeIndex compactly when possible.
+
+    Regular indices are stored as ``{start, periods, freq}`` (~3 values).
+    Irregular indices fall back to a full ISO string list.
+    """
+    freq = pd.infer_freq(tc)
+    if freq is not None:
+        return {"start": tc[0].isoformat(), "periods": len(tc), "freq": freq}
+    return [t.isoformat() for t in tc]
+
+
+def _time_coords_from_dict(raw: dict[str, Any] | list[str]) -> pd.DatetimeIndex:
+    """Deserialize a DatetimeIndex from either compact or list format."""
+    if isinstance(raw, dict):
+        return pd.date_range(raw["start"], periods=raw["periods"], freq=raw["freq"])
+    return pd.DatetimeIndex(raw)
+
+
 @dataclass(frozen=True, repr=False)
 class ClusteringResult:
     """Reusable clustering result with xarray dimension metadata.
@@ -467,7 +486,7 @@ class ClusteringResult:
             "clusterings": entries,
         }
         if self.time_coords is not None:
-            data["time_coords"] = [t.isoformat() for t in self.time_coords]
+            data["time_coords"] = _time_coords_to_dict(self.time_coords)
         return data
 
     def to_json(self, path: str | Path, **json_kwargs: Any) -> None:
@@ -498,7 +517,7 @@ class ClusteringResult:
 
         time_coords: pd.DatetimeIndex | None = None
         if "time_coords" in data:
-            time_coords = pd.DatetimeIndex(data["time_coords"])
+            time_coords = _time_coords_from_dict(data["time_coords"])
 
         return cls(
             time_dim=data["time_dim"],
