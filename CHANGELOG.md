@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.2](https://github.com/FBumann/tsam_xarray/compare/v0.5.1...v0.5.2) (2026-04-01)
+
+
+### Features
+
+* compact time_coords serialization in ClusteringResult JSON ([#79](https://github.com/FBumann/tsam_xarray/issues/79)) ([bac9fd1](https://github.com/FBumann/tsam_xarray/commit/bac9fd17ee28a48fd6f51ce16fea0df883cccb99))
+
 ## [0.5.1](https://github.com/FBumann/tsam_xarray/compare/v0.5.0...v0.5.1) (2026-03-31)
 
 
