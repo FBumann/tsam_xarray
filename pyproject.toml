@@ -20,7 +20,7 @@ classifiers = [
 ]
 dependencies = [
     "bottleneck>=1.4",
-    "tsam>=3.3.0",
+    "tsam>=3.4.0",
     "xarray>=2024.1",
 ]
 

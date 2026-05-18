@@ -475,7 +475,6 @@ def _aggregate_single(
         cluster_dim=col_dims,
         slice_dims=[],
         clusterings={(): tsam_result.clustering},
-        time_coords=pd.DatetimeIndex(da.coords[time_dim].values),
     )
 
     return AggregationResult(
@@ -562,7 +561,6 @@ def _concat_results(
         cluster_dim=first.clustering.cluster_dim,
         slice_dims=slice_dims,
         clusterings=merged_clusterings,
-        time_coords=first.clustering.time_coords,
     )
 
     return AggregationResult(
