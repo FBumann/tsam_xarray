@@ -466,6 +466,21 @@ class ClusteringResult:
         Returns:
             The loaded ``ClusteringResult``.
         """
+        # Backcompat: pre-0.6 wrappers stored the time index as an outer
+        # ``time_coords`` key while the inner tsam blob (written by tsam<3.4)
+        # had no ``time_index``. Forward it so disaggregate keeps datetimes.
+        if "time_coords" in data:
+            import warnings
+
+            warnings.warn(
+                "Loading a legacy tsam_xarray JSON with an outer 'time_coords' "
+                "field; re-save with to_json() to silence this warning.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            for entry in data["clusterings"]:
+                entry["clustering"].setdefault("time_index", data["time_coords"])
+
         clusterings: dict[tuple[Hashable, ...], tsam.ClusteringResult] = {}
         for entry in data["clusterings"]:
             key = tuple(entry["key"])

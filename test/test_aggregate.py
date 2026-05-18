@@ -1283,6 +1283,35 @@ class TestClusteringDisaggregate:
         expected = result.disaggregate(result.cluster_representatives)
         xr.testing.assert_allclose(dis, expected)
 
+    def test_legacy_time_coords_json(self, tmp_path):
+        """Legacy JSON with outer ``time_coords`` loads with a warning."""
+        import json
+
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+        )
+        path = tmp_path / "clustering.json"
+        result.clustering.to_json(str(path))
+
+        # Forge a pre-0.6 file: outer time_coords + inner blob without time_index.
+        with open(path) as f:
+            data = json.load(f)
+        tc = data["clusterings"][0]["clustering"].pop("time_index")
+        data["time_coords"] = tc
+        with open(path, "w") as f:
+            json.dump(data, f)
+
+        with pytest.warns(DeprecationWarning, match="legacy tsam_xarray JSON"):
+            clustering = tsam_xarray.load_clustering(str(path))
+
+        dis = clustering.disaggregate(result.cluster_representatives)
+        assert dis.indexes["time"].equals(da_flat.indexes["time"])
+
     def test_1d_disaggregate(self, tmp_path):
         """Disaggregate works on 1D time series."""
         time = pd.date_range("2020-01-01", periods=30 * 24, freq="h")
