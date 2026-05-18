@@ -21,25 +21,6 @@ from tsam_xarray._core import (
 )
 
 
-def _time_coords_to_dict(tc: pd.DatetimeIndex) -> dict[str, Any] | list[str]:
-    """Serialize a DatetimeIndex compactly when possible.
-
-    Regular indices are stored as ``{start, periods, freq}`` (~3 values).
-    Irregular indices fall back to a full ISO string list.
-    """
-    freq = pd.infer_freq(tc)
-    if freq is not None:
-        return {"start": tc[0].isoformat(), "periods": len(tc), "freq": freq}
-    return [t.isoformat() for t in tc]
-
-
-def _time_coords_from_dict(raw: dict[str, Any] | list[str]) -> pd.DatetimeIndex:
-    """Deserialize a DatetimeIndex from either compact or list format."""
-    if isinstance(raw, dict):
-        return pd.date_range(raw["start"], periods=raw["periods"], freq=raw["freq"])
-    return pd.DatetimeIndex(raw)
-
-
 @dataclass(frozen=True, repr=False)
 class ClusteringResult:
     """Reusable clustering result with xarray dimension metadata.
@@ -54,8 +35,6 @@ class ClusteringResult:
         slice_dims: Dimension(s) aggregated independently.
         clusterings: Per-slice tsam clustering.
             Single entry ``{(): result}`` when no slicing.
-        time_coords: Original time coordinates.
-            Needed for ``disaggregate()``.
         n_clusters: Number of clusters.
         n_original_periods: Number of original periods.
         n_timesteps_per_period: Timesteps per period.
@@ -80,7 +59,6 @@ class ClusteringResult:
     cluster_dim: list[str]
     slice_dims: list[str]
     clusterings: dict[tuple[Hashable, ...], tsam.ClusteringResult]
-    time_coords: pd.DatetimeIndex | None = field(default=None, repr=False)
     _cache: dict[str, Any] = field(
         default_factory=dict, repr=False, init=False, compare=False
     )
@@ -427,29 +405,10 @@ class ClusteringResult:
         Returns:
             Data with ``cluster`` and ``timestep`` replaced by
             the original ``time`` dimension.
-
-        Raises:
-            ValueError: If time coordinates are not available
-                (e.g., loaded from an old JSON that predates
-                this feature).
         """
-        if self.time_coords is None:
-            msg = (
-                "No time coordinates available. "
-                "This ClusteringResult was loaded from a JSON file "
-                "that does not contain time coordinate data. "
-                "Re-run aggregate() or save from a newer version."
-            )
-            raise ValueError(msg)
-
         slice_dims = self.slice_dims
         if not slice_dims:
-            cr = self.clusterings[()]
-            return _disaggregate_single(
-                self.time_coords,
-                cr,
-                data,
-            )
+            return _disaggregate_single(self.clusterings[()], data)
 
         import itertools
 
@@ -460,7 +419,7 @@ class ClusteringResult:
             sel = dict(zip(slice_dims, key, strict=True))
             data_slice = data.sel(sel)
             cr = _lookup_clustering(self.clusterings, key)
-            results.append(_disaggregate_single(self.time_coords, cr, data_slice))
+            results.append(_disaggregate_single(cr, data_slice))
 
         return _concat_along_dims(results, slice_dims, slice_coords)
 
@@ -479,15 +438,12 @@ class ClusteringResult:
                     "clustering": cr.to_dict(),
                 }
             )
-        data: dict[str, Any] = {
+        return {
             "time_dim": self.time_dim,
             "cluster_dim": self.cluster_dim,
             "slice_dims": self.slice_dims,
             "clusterings": entries,
         }
-        if self.time_coords is not None:
-            data["time_coords"] = _time_coords_to_dict(self.time_coords)
-        return data
 
     def to_json(self, path: str | Path, **json_kwargs: Any) -> None:
         """Save clustering to JSON file.
@@ -510,21 +466,31 @@ class ClusteringResult:
         Returns:
             The loaded ``ClusteringResult``.
         """
+        # Backcompat: pre-0.6 wrappers stored the time index as an outer
+        # ``time_coords`` key while the inner tsam blob (written by tsam<3.4)
+        # had no ``time_index``. Forward it so disaggregate keeps datetimes.
+        if "time_coords" in data:
+            import warnings
+
+            warnings.warn(
+                "Loading a legacy tsam_xarray JSON with an outer 'time_coords' "
+                "field; re-save with to_json() to silence this warning.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            for entry in data["clusterings"]:
+                entry["clustering"].setdefault("time_index", data["time_coords"])
+
         clusterings: dict[tuple[Hashable, ...], tsam.ClusteringResult] = {}
         for entry in data["clusterings"]:
             key = tuple(entry["key"])
             clusterings[key] = tsam.ClusteringResult.from_dict(entry["clustering"])
-
-        time_coords: pd.DatetimeIndex | None = None
-        if "time_coords" in data:
-            time_coords = _time_coords_from_dict(data["time_coords"])
 
         return cls(
             time_dim=data["time_dim"],
             cluster_dim=data["cluster_dim"],
             slice_dims=data.get("slice_dims", []),
             clusterings=clusterings,
-            time_coords=time_coords,
         )
 
     @classmethod
@@ -653,7 +619,6 @@ def _apply_single(
         cluster_dim=col_dims,
         slice_dims=[],
         clusterings={(): tsam_result.clustering},
-        time_coords=pd.DatetimeIndex(da.coords[time_dim].values),
     )
 
     return AggregationResult(
@@ -670,11 +635,14 @@ def _apply_single(
 
 
 def _disaggregate_single(
-    time_coords: pd.DatetimeIndex,
     cr: tsam.ClusteringResult,
     data: xr.DataArray,
 ) -> xr.DataArray:
-    """Disaggregate a single (non-sliced) DataArray using a ClusteringResult."""
+    """Disaggregate a single (non-sliced) DataArray using a ClusteringResult.
+
+    Relies on tsam's ``cr.disaggregate()`` to return a DataFrame indexed
+    by the original ``DatetimeIndex`` stored on the clustering.
+    """
     other_dims = [str(d) for d in data.dims if d not in ("cluster", "timestep")]
     ordered = data.transpose("cluster", "timestep", *other_dims)
 
@@ -686,10 +654,11 @@ def _disaggregate_single(
     flat = ordered.values.reshape(n_clusters * n_timesteps, -1)
 
     if cr.segment_durations is not None:
-        idx_tuples = []
-        for c in clusters:
-            for seg, dur in enumerate(cr.segment_durations[int(c)]):
-                idx_tuples.append((int(c), seg, int(dur)))
+        idx_tuples = [
+            (int(c), seg, int(dur))
+            for c in clusters
+            for seg, dur in enumerate(cr.segment_durations[int(c)])
+        ]
         mi = pd.MultiIndex.from_tuples(
             idx_tuples, names=["cluster", "segment", "duration"]
         )
@@ -700,12 +669,10 @@ def _disaggregate_single(
 
     df = pd.DataFrame(flat, index=mi, columns=range(flat.shape[1]))
     expanded = cr.disaggregate(df)
-
-    n_original = len(time_coords)
-    vals = expanded.values[:n_original]
+    time_coords = expanded.index
 
     if other_dims:
-        vals = vals.reshape(n_original, *other_sizes)
+        vals = expanded.values.reshape(len(time_coords), *other_sizes)
         result = xr.DataArray(
             vals,
             dims=["time", *other_dims],
@@ -716,7 +683,7 @@ def _disaggregate_single(
                 result = result.assign_coords({d: data.coords[d]})
     else:
         result = xr.DataArray(
-            vals[:, 0],
+            expanded.values[:, 0],
             dims=["time"],
             coords={"time": time_coords},
         )

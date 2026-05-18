@@ -211,10 +211,7 @@ class AggregationResult:
 
     def _disaggregate_single(self, data: xr.DataArray) -> xr.DataArray:
         """Disaggregate without slice dims."""
-        import pandas as pd
-
         from tsam_xarray._clustering import _disaggregate_single
 
-        time_coords = pd.DatetimeIndex(self.original.coords["time"].values)
         cr = self.clustering.clusterings[()]
-        return _disaggregate_single(time_coords, cr, data)
+        return _disaggregate_single(cr, data)
