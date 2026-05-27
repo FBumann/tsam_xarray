@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.3](https://github.com/FBumann/tsam_xarray/compare/v0.5.2...v0.5.3) (2026-05-27)
+
+
+### Miscellaneous Chores
+
+* release 0.5.3 ([#84](https://github.com/FBumann/tsam_xarray/issues/84)) ([5b49f5e](https://github.com/FBumann/tsam_xarray/commit/5b49f5efeeb58509f7ef748866d25e47a0dfc833))
+
 ## [0.5.2](https://github.com/FBumann/tsam_xarray/compare/v0.5.1...v0.5.2) (2026-04-01)
 
 
