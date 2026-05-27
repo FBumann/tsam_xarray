@@ -3,9 +3,21 @@
 ## [0.5.3](https://github.com/FBumann/tsam_xarray/compare/v0.5.2...v0.5.3) (2026-05-27)
 
 
-### Miscellaneous Chores
+### ⚠ BREAKING CHANGES
 
-* release 0.5.3 ([#84](https://github.com/FBumann/tsam_xarray/issues/84)) ([5b49f5e](https://github.com/FBumann/tsam_xarray/commit/5b49f5efeeb58509f7ef748866d25e47a0dfc833))
+* **ClusteringResult:** `time_coords` attribute and the `_time_coords_to_dict` / `_time_coords_from_dict` helpers have been removed. The time index now lives inside the tsam `ClusteringResult` payload (`time_index`) and flows through `aggregate` / `disaggregate` natively. Pre-0.6 JSONs are still loadable — the legacy outer `time_coords` field is forwarded to the inner `time_index` with a `DeprecationWarning`. Re-save to silence the warning. ([#83](https://github.com/FBumann/tsam_xarray/pull/83))
+
+
+### Refactors
+
+* Reuse tsam 3.4's `DatetimeIndex` round-trip in `disaggregate`, dropping the parallel `time_coords` field, the compact serialization helpers, and the manual `MultiIndex` truncation in `_disaggregate_single`. ([#83](https://github.com/FBumann/tsam_xarray/pull/83))
+
+
+### Dependencies
+
+* Bump minimum `tsam` to `>=3.4.0` (required for the `time_index` round-trip above).
+* Bump `googleapis/release-please-action` from 4 to 5. ([#82](https://github.com/FBumann/tsam_xarray/pull/82))
+* Bump `dependabot/fetch-metadata` from 2 to 3. ([#81](https://github.com/FBumann/tsam_xarray/pull/81))
 
 ## [0.5.2](https://github.com/FBumann/tsam_xarray/compare/v0.5.1...v0.5.2) (2026-04-01)
 
