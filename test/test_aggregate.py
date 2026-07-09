@@ -306,6 +306,125 @@ class TestWeights:
             )
 
 
+@pytest.fixture
+def da_3var() -> xr.DataArray:
+    """Single cluster_dim: solar/wind/price over time (region dropped)."""
+    return _make_da(variables=["solar", "wind", "price"]).isel(region=0, drop=True)
+
+
+@pytest.fixture
+def da_3var_region() -> xr.DataArray:
+    """Multi cluster_dim: solar/wind/price over time and region."""
+    return _make_da(variables=["solar", "wind", "price"])
+
+
+class TestClusterOn:
+    """cluster_on restricts which coords drive clustering, keeping the rest."""
+
+    @pytest.mark.parametrize(
+        ("cluster_dim", "cluster_on", "subset"),
+        [
+            ("variable", ["solar", "wind"], ["solar", "wind"]),
+            ("variable", "solar", ["solar"]),
+            (
+                ["variable", "region"],
+                {"variable": ["solar", "wind"]},
+                ["solar", "wind"],
+            ),
+        ],
+        ids=["list", "string", "dict-multi"],
+    )
+    def test_matches_subset_clustering(
+        self,
+        da_3var: xr.DataArray,
+        da_3var_region: xr.DataArray,
+        cluster_dim: list[str] | str,
+        cluster_on: object,
+        subset: list[str],
+    ):
+        """cluster_on gives the same clustering as aggregating the subset alone,
+        while carried coords still appear in the output."""
+        da = da_3var if cluster_dim == "variable" else da_3var_region
+        restricted = tsam_xarray.aggregate(
+            da,
+            time_dim="time",
+            cluster_dim=cluster_dim,
+            n_clusters=4,
+            cluster_on=cluster_on,
+        )
+        reference = tsam_xarray.aggregate(
+            da.sel(variable=subset),
+            time_dim="time",
+            cluster_dim=cluster_dim,
+            n_clusters=4,
+        )
+        np.testing.assert_array_equal(
+            restricted.clustering.cluster_assignments.values,
+            reference.clustering.cluster_assignments.values,
+        )
+        reps = restricted.cluster_representatives
+        assert "price" in reps.coords["variable"].values
+        assert "price" in restricted.reconstructed.coords["variable"].values
+
+    def test_including_var_would_change_clustering(self, da_3var: xr.DataArray):
+        """Sanity: clustering on everything gives different assignments."""
+        restricted = tsam_xarray.aggregate(
+            da_3var,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+            cluster_on=["solar", "wind"],
+        )
+        full = tsam_xarray.aggregate(
+            da_3var, time_dim="time", cluster_dim="variable", n_clusters=4
+        )
+        assert (
+            restricted.clustering.cluster_assignments.values
+            != full.clustering.cluster_assignments.values
+        ).any()
+
+    def test_composes_with_weights(self, da_3var: xr.DataArray):
+        """cluster_on and weights coexist; weights apply to the active subset."""
+        result = tsam_xarray.aggregate(
+            da_3var,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+            cluster_on=["solar", "wind"],
+            weights={"solar": 5.0, "wind": 1.0},
+        )
+        assert result.n_clusters == 4
+        assert "price" in result.cluster_representatives.coords["variable"].values
+
+    @pytest.mark.parametrize(
+        ("cluster_dim", "cluster_on", "match"),
+        [
+            (["variable", "region"], ["solar"], "single cluster_dim"),
+            (["variable", "region"], {"scenario": ["low"]}, "unknown dims"),
+            ("variable", ["nuclear"], "unknown coords"),
+            ("variable", {"variable": []}, "nothing to cluster on"),
+        ],
+        ids=["list-multi", "unknown-dim", "unknown-coord", "empty"],
+    )
+    def test_invalid_cluster_on_raises(
+        self,
+        da_3var: xr.DataArray,
+        da_3var_region: xr.DataArray,
+        cluster_dim: list[str] | str,
+        cluster_on: object,
+        match: str,
+    ):
+        da = da_3var if cluster_dim == "variable" else da_3var_region
+        with pytest.raises(ValueError, match=match):
+            tsam_xarray.aggregate(
+                da,
+                time_dim="time",
+                cluster_dim=cluster_dim,
+                n_clusters=4,
+                cluster_on=cluster_on,
+            )
+
+
 class TestWeightTranslation:
     """Verify weight values are correctly translated."""
 
