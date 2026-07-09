@@ -78,6 +78,13 @@ def aggregate(
               to be clustered on. At least one column must
               remain selected.
 
+              Not compatible with ``ExtremeConfig(method=
+              "replace")`` — the carried columns are filled by
+              transferring the clustering, which cannot
+              reproduce the hybrid 'replace' representative. Use
+              a low ``weights`` value to de-emphasise a column
+              instead of excluding it.
+
         **tsam_kwargs: Additional keyword arguments passed to
             ``tsam.aggregate()``.
     """
@@ -89,6 +96,7 @@ def aggregate(
     _validate_no_cluster_config_weights(tsam_kwargs)
     per_dim_weights = _normalize_weights(weights, da, col_dims)
     active_coords = _normalize_cluster_on(cluster_on, da, col_dims)
+    _validate_extremes_with_cluster_on(tsam_kwargs, active_coords)
 
     if not slice_dims:
         return _aggregate_single(
@@ -161,6 +169,37 @@ def _validate_no_cluster_config_weights(
             "ClusterConfig.weights is deprecated in tsam and not "
             "supported by tsam_xarray. Use the top-level 'weights' "
             "parameter of aggregate() instead."
+        )
+        raise ValueError(msg)
+
+
+def _validate_extremes_with_cluster_on(
+    tsam_kwargs: dict[str, Any],
+    active_coords: dict[str, set[str]] | None,
+) -> None:
+    """Reject extremes method 'replace' combined with cluster_on.
+
+    cluster_on clusters on the active subset and transfers the result to the
+    carried columns via ``ClusteringResult.apply()``. The 'replace' method
+    builds a hybrid representative (some columns from the medoid, some from the
+    extreme period) that apply() cannot reproduce — tsam silently falls back to
+    the medoid. Rather than degrade quietly, error and point to ``weights``,
+    which de-emphasises a column without excluding it from the clustering (tsam
+    clamps a low weight to a minimal one, so the column stays in the single
+    aggregation pass and 'replace' remains reproducible).
+    """
+    if active_coords is None:
+        return
+    extremes = tsam_kwargs.get("extremes")
+    if extremes is not None and getattr(extremes, "method", None) == "replace":
+        msg = (
+            "extremes method 'replace' is not supported together with "
+            "cluster_on. cluster_on fully excludes the carried columns and "
+            "transfers the clustering to them, which cannot reproduce the "
+            "hybrid 'replace' representative. To reduce a column's influence "
+            "without excluding it, give it a low 'weights' value instead of "
+            "using cluster_on (weights never removes a column entirely, so "
+            "'replace' stays reproducible)."
         )
         raise ValueError(msg)
 
