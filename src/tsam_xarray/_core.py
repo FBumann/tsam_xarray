@@ -301,7 +301,7 @@ def _representatives_to_da(
     df = df.copy()
     # With segmentation, index has 3 levels: (cluster, segment_step, segment_duration)
     # Without: 2 levels: (cluster, timestep)
-    if df.index.nlevels == 3:
+    if isinstance(df.index, pd.MultiIndex) and df.index.nlevels == 3:
         df.index = df.index.droplevel(2)  # drop segment_duration
     df.index.names = ["cluster", "timestep"]
 
@@ -375,6 +375,36 @@ def _metric_to_da(
     return xr.DataArray(series.to_xarray())
 
 
+def _validate_dim_coord_mapping(
+    mapping: dict[str, Any],
+    da: xr.DataArray,
+    col_dims: list[str],
+    label: str,
+) -> None:
+    """Validate a ``{dim: coords}`` mapping references real dims and coords.
+
+    ``coords`` may be any iterable of coordinate names (a list, or the keys
+    of a ``{coord: weight}`` dict). Shared by ``weights`` and ``cluster_on``.
+    """
+    extra_dims = set(mapping.keys()) - set(col_dims)
+    if extra_dims:
+        msg = (
+            f"{label} has unknown dims {extra_dims}, "
+            f"must be subset of cluster_dim {col_dims}"
+        )
+        raise ValueError(msg)
+
+    for dim_name, coords in mapping.items():
+        valid_coords = set(str(c) for c in da.coords[dim_name].values)
+        unknown = set(str(c) for c in coords) - valid_coords
+        if unknown:
+            msg = (
+                f"{label} has unknown coords {unknown} for dim {dim_name!r}, "
+                f"valid coords: {sorted(valid_coords)}"
+            )
+            raise ValueError(msg)
+
+
 def _normalize_weights(
     weights: dict[str, float] | dict[str, dict[str, float]] | None,
     da: xr.DataArray,
@@ -406,26 +436,7 @@ def _normalize_weights(
             raise ValueError(msg)
         per_dim_weights = {col_dims[0]: weights}  # type: ignore[dict-item]
 
-    # Validate dim names exist in cluster_dim
-    extra_dims = set(per_dim_weights.keys()) - set(col_dims)
-    if extra_dims:
-        msg = (
-            f"weights has unknown dims {extra_dims}, "
-            f"must be subset of cluster_dim {col_dims}"
-        )
-        raise ValueError(msg)
-
-    # Validate coord values exist in the DataArray
-    for dim_name, coord_weights in per_dim_weights.items():
-        valid_coords = set(str(c) for c in da.coords[dim_name].values)
-        unknown = set(coord_weights.keys()) - valid_coords
-        if unknown:
-            msg = (
-                f"weights has unknown coords {unknown} for dim {dim_name!r}, "
-                f"valid coords: {sorted(valid_coords)}"
-            )
-            raise ValueError(msg)
-
+    _validate_dim_coord_mapping(per_dim_weights, da, col_dims, "weights")
     return per_dim_weights
 
 
@@ -457,25 +468,17 @@ def _normalize_cluster_on(
         coords = [cluster_on] if isinstance(cluster_on, str) else list(cluster_on)
         per_dim = {col_dims[0]: [str(c) for c in coords]}
 
-    # Validate dim names exist in cluster_dim
-    extra_dims = set(per_dim.keys()) - set(col_dims)
-    if extra_dims:
+    _validate_dim_coord_mapping(per_dim, da, col_dims, "cluster_on")
+
+    # An empty coord list for any restricted dim leaves no column to cluster
+    # on (the stacked columns are the full coordinate grid). Fail here, before
+    # any aggregation runs, rather than deep in the per-slice loop.
+    if any(not coords for coords in per_dim.values()):
         msg = (
-            f"cluster_on has unknown dims {extra_dims}, "
-            f"must be subset of cluster_dim {col_dims}"
+            "cluster_on selected no columns — nothing to cluster on. "
+            "Select at least one coordinate present in the data."
         )
         raise ValueError(msg)
-
-    # Validate coord values exist in the DataArray
-    for dim_name, coords_list in per_dim.items():
-        valid_coords = set(str(c) for c in da.coords[dim_name].values)
-        unknown = set(coords_list) - valid_coords
-        if unknown:
-            msg = (
-                f"cluster_on has unknown coords {unknown} for dim {dim_name!r}, "
-                f"valid coords: {sorted(valid_coords)}"
-            )
-            raise ValueError(msg)
 
     return {d: set(cs) for d, cs in per_dim.items()}
 
@@ -510,42 +513,35 @@ _APPLY_KWARGS = frozenset(
 )
 
 
-def _col_is_active(
-    col: Hashable,
-    active_coords: dict[str, set[str]],
-    col_dims: list[str],
-) -> bool:
-    """Whether a column is clustered on, given cluster_on restrictions.
-
-    A column qualifies only if, for every restricted dim, its coordinate
-    is in that dim's eligible set. Unrestricted dims impose no constraint.
-    """
-    if isinstance(col, tuple):
-        pairs = list(zip(col_dims, col, strict=True))
-    else:
-        pairs = [(col_dims[0], col)]
-    return all(
-        str(coord) in active_coords[dim] for dim, coord in pairs if dim in active_coords
-    )
-
-
-def _partition_by_cluster_on(
+def _active_columns(
     df: pd.DataFrame,
     active_coords: dict[str, set[str]] | None,
     col_dims: list[str],
-) -> tuple[list[Hashable], list[Hashable]]:
-    """Split columns into (active, passive) by cluster_on selection.
+) -> list[Hashable]:
+    """Columns that drive the clustering, given a cluster_on selection.
 
-    *Active* columns drive the clustering; *passive* columns are carried
-    through (aggregated and reconstructed) but excluded from the cluster
-    distances. With no restriction, every column is active.
+    A column is active only if, for every restricted dim, its coordinate is
+    in that dim's eligible set; unrestricted dims impose no constraint. With
+    no restriction (``active_coords is None``) every column is active. The
+    remaining columns are *passive*: still aggregated and reconstructed, but
+    excluded from the cluster distances.
     """
-    cols: list[Hashable] = list(df.columns)
     if active_coords is None:
-        return cols, []
-    active = [c for c in cols if _col_is_active(c, active_coords, col_dims)]
-    passive = [c for c in cols if not _col_is_active(c, active_coords, col_dims)]
-    return active, passive
+        return list(df.columns)
+
+    def is_active(col: Hashable) -> bool:
+        pairs = (
+            zip(col_dims, col, strict=True)
+            if isinstance(col, tuple)
+            else [(col_dims[0], col)]
+        )
+        return all(
+            str(coord) in active_coords[dim]
+            for dim, coord in pairs
+            if dim in active_coords
+        )
+
+    return [col for col in df.columns if is_active(col)]
 
 
 def _aggregate_single(
@@ -569,34 +565,30 @@ def _aggregate_single(
     if weights is not None:
         tsam_weights = _translate_weights(weights, df, col_dims)
 
-    active_cols, passive_cols = _partition_by_cluster_on(df, active_coords, col_dims)
-    if not active_cols:
-        msg = (
-            "cluster_on selected no columns — nothing to cluster on. "
-            "Select at least one coordinate present in the data."
-        )
-        raise ValueError(msg)
+    active_cols = _active_columns(df, active_coords, col_dims)
 
-    if passive_cols:
-        active_df = df[active_cols]
-        active_weights = (
-            None if tsam_weights is None else {c: tsam_weights[c] for c in active_cols}
-        )
-        clustering = tsam.aggregate(
-            active_df,
-            n_clusters,
-            weights=active_weights,  # type: ignore[arg-type]
-            **tsam_kwargs,
-        ).clustering
-        apply_kwargs = {k: v for k, v in tsam_kwargs.items() if k in _APPLY_KWARGS}
-        tsam_result = clustering.apply(df, **apply_kwargs)
-    else:
+    if len(active_cols) == len(df.columns):
+        # Nothing carried passively — cluster on the full frame directly.
         tsam_result = tsam.aggregate(
             df,
             n_clusters,
             weights=tsam_weights,  # type: ignore[arg-type]
             **tsam_kwargs,
         )
+    else:
+        # Cluster on the active subset, then apply that clustering back to the
+        # full frame so passive columns get representatives and reconstruction.
+        active_weights = (
+            None if tsam_weights is None else {c: tsam_weights[c] for c in active_cols}
+        )
+        clustering = tsam.aggregate(
+            df[active_cols],
+            n_clusters,
+            weights=active_weights,  # type: ignore[arg-type]
+            **tsam_kwargs,
+        ).clustering
+        apply_kwargs = {k: v for k, v in tsam_kwargs.items() if k in _APPLY_KWARGS}
+        tsam_result = clustering.apply(df, **apply_kwargs)
 
     return _result_from_tsam(tsam_result, da, df, time_dim, col_dims)
 
