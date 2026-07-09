@@ -396,6 +396,50 @@ class TestClusterOn:
         assert result.n_clusters == 4
         assert "price" in result.cluster_representatives.coords["variable"].values
 
+    def test_replace_extremes_rejected(self, da_3var: xr.DataArray):
+        """extremes='replace' can't survive the cluster_on transfer — error,
+        and steer users to weights instead of full exclusion."""
+        import tsam
+
+        with pytest.raises(ValueError, match=r"replace.*not supported.*cluster_on"):
+            tsam_xarray.aggregate(
+                da_3var,
+                time_dim="time",
+                cluster_dim="variable",
+                n_clusters=4,
+                cluster_on=["solar", "wind"],
+                extremes=tsam.ExtremeConfig(method="replace", max_value=["solar"]),
+            )
+
+    def test_extremes_on_excluded_column_rejected(self, da_3var: xr.DataArray):
+        """An ExtremeConfig referencing a cluster_on-excluded coord errors with
+        a clear cause, not tsam's misleading 'not found in data'."""
+        import tsam
+
+        with pytest.raises(ValueError, match=r"cluster_on excluded"):
+            tsam_xarray.aggregate(
+                da_3var,
+                time_dim="time",
+                cluster_dim="variable",
+                n_clusters=4,
+                cluster_on=["solar", "wind"],
+                extremes=tsam.ExtremeConfig(method="append", max_value=["price"]),
+            )
+
+    def test_append_extremes_allowed(self, da_3var: xr.DataArray):
+        """extremes='append' on an active column composes with cluster_on."""
+        import tsam
+
+        result = tsam_xarray.aggregate(
+            da_3var,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+            cluster_on=["solar", "wind"],
+            extremes=tsam.ExtremeConfig(method="append", max_value=["solar"]),
+        )
+        assert "price" in result.cluster_representatives.coords["variable"].values
+
     @pytest.mark.parametrize(
         ("cluster_dim", "cluster_on", "match"),
         [
