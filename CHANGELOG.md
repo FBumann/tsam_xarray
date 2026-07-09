@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.1](https://github.com/FBumann/tsam_xarray/compare/v0.6.0...v0.6.1) (2026-07-09)
+
+
+### Features
+
+* add cluster_on to select which coordinates drive clustering ([#89](https://github.com/FBumann/tsam_xarray/issues/89)) ([ddff73b](https://github.com/FBumann/tsam_xarray/commit/ddff73b24243e53d5a182b9e8c794e2b57a8d1b7))
+* validate extremes options against cluster_on ([#91](https://github.com/FBumann/tsam_xarray/issues/91)) ([2fa5a91](https://github.com/FBumann/tsam_xarray/commit/2fa5a91c5222f8b6dd6932d9572dec62e90f595b))
+
 ## [0.6.0](https://github.com/FBumann/tsam_xarray/compare/v0.5.2...v0.6.0) (2026-05-27)
 
 
