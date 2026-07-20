@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import pandas as pd
 import xarray as xr
 
 if TYPE_CHECKING:
@@ -71,7 +72,7 @@ class AggregationResult:
             *slice_dims)``.
         accuracy: Per-column and weighted accuracy metrics.
         reconstructed: Reconstructed time series
-            (same shape as input).
+            (same shape and dim order as ``original``).
         original: The input data.
         clustering: Reusable clustering metadata.
             See `ClusteringResult`.
@@ -121,8 +122,68 @@ class AggregationResult:
 
     @property
     def residuals(self) -> xr.DataArray:
-        """Difference between original and reconstructed data."""
+        """Difference between original and reconstructed data.
+
+        Shares the dim order of ``original`` and ``reconstructed``.
+        """
         return self.original - self.reconstructed
+
+    def compare(self, **sel: object) -> xr.DataArray:
+        """Stack ``original`` and ``reconstructed`` along a ``variant`` dim.
+
+        Returns a single DataArray on the original time axis with a new
+        ``variant`` coordinate ``["original", "reconstructed"]``, ready to
+        plot directly with a ``color=``/``hue="variant"`` grouping — no
+        ``melt`` step. This is the canonical way to eyeball aggregation
+        quality per column and per slice dim.
+
+        Args:
+            **sel: Optional label-based selection applied to both arrays
+                before stacking, e.g. ``compare(variable="solar")`` to
+                compare a single column.
+
+        Returns:
+            DataArray with dims ``("variant", *original.dims)``.
+
+        Examples:
+            >>> agg.compare(variable="solar").plotly.line(
+            ...     x="time", color="variant"
+            ... )
+        """
+        original = self.original
+        reconstructed = self.reconstructed
+        if sel:
+            original = original.sel(sel)
+            reconstructed = reconstructed.sel(sel)
+        variant = pd.Index(["original", "reconstructed"], name="variant")
+        combined = xr.concat([original, reconstructed], dim=variant)
+        combined.name = self.original.name
+        return combined
+
+    def to_dataframe(self, **sel: object) -> pd.DataFrame:
+        """Tidy/long-form ``original`` vs ``reconstructed`` DataFrame.
+
+        A flat DataFrame with a ``variant`` column
+        (``"original"``/``"reconstructed"``), the ``time`` axis, every
+        cluster and slice dim, and a value column — ready to hand
+        straight to a plotting library.
+
+        Args:
+            **sel: Optional label-based selection forwarded to
+                `compare` (e.g. ``variable="solar"``).
+
+        Returns:
+            Long-form DataFrame with a ``variant`` column and one value
+            column (named after the input DataArray, or ``"value"``).
+        """
+        combined = self.compare(**sel)
+        # The value column can't reuse the added "variant" dim name (or a
+        # None name) — to_dataframe() would collide on insert. Fall back to
+        # "value"; all other input names are preserved.
+        name = combined.name
+        if name is None or str(name) == "variant":
+            name = "value"
+        return combined.to_dataframe(name=str(name)).reset_index()
 
     def disaggregate(self, data: xr.DataArray) -> xr.DataArray:
         """Map data on ``(cluster, timestep)`` back to original time.

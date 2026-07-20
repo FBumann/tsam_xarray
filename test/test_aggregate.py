@@ -1529,3 +1529,109 @@ class TestSliceEdgeCases:
         _validate_consistent_cluster_counts(
             [r1, r2], [("low",), ("high",)]
         )  # should not raise
+
+
+def _make_time_last_da() -> xr.DataArray:
+    """DataArray with time as the LAST dim (the #92 papercut case)."""
+    time = pd.date_range("2020-01-01", periods=10 * 24, freq="h")
+    rng = np.random.default_rng(0)
+    return xr.DataArray(
+        rng.random((2, 2, len(time))),
+        dims=["scenario", "variable", "time"],
+        coords={
+            "scenario": ["a", "b"],
+            "variable": ["solar", "wind"],
+            "time": time,
+        },
+        name="power",
+    )
+
+
+class TestDimOrderConsistency:
+    """original / reconstructed / residuals must share dim order (#92)."""
+
+    def test_time_last_input_aligned(self):
+        da = _make_time_last_da()
+        result = tsam_xarray.aggregate(
+            da, time_dim="time", cluster_dim="variable", n_clusters=4
+        )
+        assert result.original.dims == da.dims
+        assert result.reconstructed.dims == result.original.dims
+        assert result.residuals.dims == result.original.dims
+
+    def test_time_first_input_aligned(self):
+        da = _make_da(scenarios=["low", "high"])  # dims start with time
+        result = tsam_xarray.aggregate(
+            da,
+            time_dim="time",
+            cluster_dim=["variable", "region"],
+            n_clusters=4,
+        )
+        assert result.reconstructed.dims == result.original.dims
+        assert result.residuals.dims == result.original.dims
+
+    def test_single_dim_no_slice(self):
+        da = _make_time_last_da().isel(scenario=0).drop_vars("scenario")
+        result = tsam_xarray.aggregate(
+            da, time_dim="time", cluster_dim="variable", n_clusters=4
+        )
+        assert result.reconstructed.dims == result.original.dims == da.dims
+
+
+class TestCompare:
+    """AggregationResult.compare() and .to_dataframe() (#92)."""
+
+    def test_compare_adds_variant_dim(self):
+        da = _make_time_last_da()
+        result = tsam_xarray.aggregate(
+            da, time_dim="time", cluster_dim="variable", n_clusters=4
+        )
+        cmp = result.compare()
+        assert cmp.dims == ("variant", *result.original.dims)
+        assert list(cmp["variant"].values) == ["original", "reconstructed"]
+        assert cmp.name == "power"
+        # The two variants match the source arrays.
+        xr.testing.assert_equal(cmp.sel(variant="original", drop=True), result.original)
+        xr.testing.assert_equal(
+            cmp.sel(variant="reconstructed", drop=True), result.reconstructed
+        )
+
+    def test_compare_with_selection(self):
+        da = _make_time_last_da()
+        result = tsam_xarray.aggregate(
+            da, time_dim="time", cluster_dim="variable", n_clusters=4
+        )
+        cmp = result.compare(variable="solar")
+        assert "variable" not in cmp.dims
+        assert cmp.sizes["variant"] == 2
+
+    def test_to_dataframe_is_long_form(self):
+        da = _make_time_last_da()
+        result = tsam_xarray.aggregate(
+            da, time_dim="time", cluster_dim="variable", n_clusters=4
+        )
+        df = result.to_dataframe(variable="solar")
+        assert "variant" in df.columns
+        assert "power" in df.columns
+        assert set(df["variant"].unique()) == {"original", "reconstructed"}
+        # long-form: one row per (variant, scenario, time)
+        n_time = da.sizes["time"]
+        assert len(df) == 2 * da.sizes["scenario"] * n_time
+
+    def test_to_dataframe_unnamed_uses_value(self):
+        da = _make_time_last_da().rename(None)
+        result = tsam_xarray.aggregate(
+            da, time_dim="time", cluster_dim="variable", n_clusters=4
+        )
+        df = result.to_dataframe()
+        assert "value" in df.columns
+
+    def test_to_dataframe_name_collision_with_variant(self):
+        """An input named 'variant' falls back to 'value' (no insert clash)."""
+        da = _make_time_last_da().rename("variant")
+        result = tsam_xarray.aggregate(
+            da, time_dim="time", cluster_dim="variable", n_clusters=4
+        )
+        df = result.to_dataframe(variable="solar")
+        assert "value" in df.columns
+        assert list(df.columns).count("variant") == 1
