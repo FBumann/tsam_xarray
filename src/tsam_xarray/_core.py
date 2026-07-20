@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import itertools
+import warnings
 from collections.abc import Hashable, Sequence
 from typing import Any
 
@@ -280,8 +281,6 @@ def _validate_data(
 
     # Dask arrays — compute before other checks
     if hasattr(da.data, "dask"):
-        import warnings
-
         warnings.warn(
             "DataArray is backed by dask. Computing eagerly for tsam.",
             stacklevel=3,
@@ -640,28 +639,33 @@ def _aggregate_single(
 
     active_cols = _active_columns(df, active_coords, col_dims)
 
-    if len(active_cols) == len(df.columns):
-        # Nothing carried passively — cluster on the full frame directly.
-        tsam_result = tsam.aggregate(
-            df,
-            n_clusters,
-            weights=tsam_weights,  # type: ignore[arg-type]
-            **tsam_kwargs,
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=".*sorted alphabetically.*",
+            category=FutureWarning,
         )
-    else:
-        # Cluster on the active subset, then apply that clustering back to the
-        # full frame so passive columns get representatives and reconstruction.
-        active_weights = (
-            None if tsam_weights is None else {c: tsam_weights[c] for c in active_cols}
-        )
-        clustering = tsam.aggregate(
-            df[active_cols],
-            n_clusters,
-            weights=active_weights,  # type: ignore[arg-type]
-            **tsam_kwargs,
-        ).clustering
-        apply_kwargs = {k: v for k, v in tsam_kwargs.items() if k in _APPLY_KWARGS}
-        tsam_result = clustering.apply(df, **apply_kwargs)
+        if len(active_cols) == len(df.columns):
+            tsam_result = tsam.aggregate(
+                df,
+                n_clusters,
+                weights=tsam_weights,  # type: ignore[arg-type]
+                **tsam_kwargs,
+            )
+        else:
+            active_weights = (
+                None
+                if tsam_weights is None
+                else {c: tsam_weights[c] for c in active_cols}
+            )
+            clustering = tsam.aggregate(
+                df[active_cols],
+                n_clusters,
+                weights=active_weights,  # type: ignore[arg-type]
+                **tsam_kwargs,
+            ).clustering
+            apply_kwargs = {k: v for k, v in tsam_kwargs.items() if k in _APPLY_KWARGS}
+            tsam_result = clustering.apply(df, **apply_kwargs)
 
     return _result_from_tsam(tsam_result, da, df, time_dim, col_dims)
 
@@ -676,12 +680,6 @@ def _result_from_tsam(
     """Build an AggregationResult from a tsam aggregation result."""
     typical = _representatives_to_da(tsam_result.cluster_representatives, col_dims)
     reconstructed = _reconstructed_to_da(tsam_result.reconstructed, time_dim, col_dims)
-    # tsam emits reconstructed as (time, *cluster_dims) with alphabetically
-    # sorted columns. Realign to the input's dim *and* coordinate order so
-    # `original` and `reconstructed` line up exactly — matching values,
-    # to_dataframe() row order, and label-based ops (slice dims are prepended
-    # identically to both later). reindex only reorders here: the column set is
-    # identical, so no NaNs are introduced.
     reconstructed = reconstructed.transpose(*da.dims).reindex_like(da)
 
     cw = tsam_result.cluster_weights
