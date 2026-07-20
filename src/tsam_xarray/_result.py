@@ -145,7 +145,7 @@ class AggregationResult:
         Returns:
             DataArray with dims ``("variant", *original.dims)``.
 
-        Example:
+        Examples:
             >>> agg.compare(variable="solar").plotly.line(
             ...     x="time", color="variant"
             ... )
@@ -177,8 +177,13 @@ class AggregationResult:
             column (named after the input DataArray, or ``"value"``).
         """
         combined = self.compare(**sel)
-        name = str(combined.name) if combined.name is not None else "value"
-        return combined.to_dataframe(name=name).reset_index()
+        # The value column can't reuse the added "variant" dim name (or a
+        # None name) — to_dataframe() would collide on insert. Fall back to
+        # "value"; all other input names are preserved.
+        name = combined.name
+        if name is None or str(name) == "variant":
+            name = "value"
+        return combined.to_dataframe(name=str(name)).reset_index()
 
     def disaggregate(self, data: xr.DataArray) -> xr.DataArray:
         """Map data on ``(cluster, timestep)`` back to original time.

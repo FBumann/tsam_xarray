@@ -1625,3 +1625,13 @@ class TestCompare:
         )
         df = result.to_dataframe()
         assert "value" in df.columns
+
+    def test_to_dataframe_name_collision_with_variant(self):
+        """An input named 'variant' falls back to 'value' (no insert clash)."""
+        da = _make_time_last_da().rename("variant")
+        result = tsam_xarray.aggregate(
+            da, time_dim="time", cluster_dim="variable", n_clusters=4
+        )
+        df = result.to_dataframe(variable="solar")
+        assert "value" in df.columns
+        assert list(df.columns).count("variant") == 1
