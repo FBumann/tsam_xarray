@@ -1577,6 +1577,28 @@ class TestDimOrderConsistency:
         )
         assert result.reconstructed.dims == result.original.dims == da.dims
 
+    def test_non_alphabetical_coord_order_preserved(self):
+        """reconstructed keeps the input's coord order, not tsam's sorted one."""
+        time = pd.date_range("2020-01-01", periods=5 * 24, freq="h")
+        rng = np.random.default_rng(0)
+        # Deliberately non-alphabetical so tsam's sorting would reorder it.
+        da = xr.DataArray(
+            rng.random((len(time), 3)),
+            dims=["time", "variable"],
+            coords={"time": time, "variable": ["wind", "solar", "demand"]},
+            name="p",
+        )
+        result = tsam_xarray.aggregate(
+            da, time_dim="time", cluster_dim="variable", n_clusters=3
+        )
+        assert list(result.reconstructed["variable"].values) == [
+            "wind",
+            "solar",
+            "demand",
+        ]
+        # Realignment must only reorder, never introduce NaNs.
+        assert not bool(result.reconstructed.isnull().any())
+
 
 class TestCompare:
     """AggregationResult.compare() and .to_dataframe() (#92)."""

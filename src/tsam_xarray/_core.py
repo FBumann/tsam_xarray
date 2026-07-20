@@ -676,10 +676,13 @@ def _result_from_tsam(
     """Build an AggregationResult from a tsam aggregation result."""
     typical = _representatives_to_da(tsam_result.cluster_representatives, col_dims)
     reconstructed = _reconstructed_to_da(tsam_result.reconstructed, time_dim, col_dims)
-    # tsam emits reconstructed as (time, *cluster_dims); reorder to match the
-    # input's dim order so `original` and `reconstructed` always align for
-    # comparison/plotting (slice dims are prepended identically to both later).
-    reconstructed = reconstructed.transpose(*da.dims)
+    # tsam emits reconstructed as (time, *cluster_dims) with alphabetically
+    # sorted columns. Realign to the input's dim *and* coordinate order so
+    # `original` and `reconstructed` line up exactly — matching values,
+    # to_dataframe() row order, and label-based ops (slice dims are prepended
+    # identically to both later). reindex only reorders here: the column set is
+    # identical, so no NaNs are introduced.
+    reconstructed = reconstructed.transpose(*da.dims).reindex_like(da)
 
     cw = tsam_result.cluster_weights
     cluster_ids = np.array(sorted(cw.keys()))
