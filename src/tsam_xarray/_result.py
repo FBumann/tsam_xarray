@@ -177,9 +177,6 @@ class AggregationResult:
             column (named after the input DataArray, or ``"value"``).
         """
         combined = self.compare(**sel)
-        # The value column can't reuse the added "variant" dim name (or a
-        # None name) — to_dataframe() would collide on insert. Fall back to
-        # "value"; all other input names are preserved.
         name = combined.name
         if name is None or str(name) == "variant":
             name = "value"
