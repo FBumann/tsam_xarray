@@ -9,6 +9,8 @@ import pandas as pd
 import xarray as xr
 
 if TYPE_CHECKING:
+    import plotly.graph_objects as go
+
     from tsam_xarray._clustering import ClusteringResult
 
 
@@ -184,6 +186,97 @@ class AggregationResult:
         if name is None or str(name) == "variant":
             name = "value"
         return combined.to_dataframe(name=str(name)).reset_index()
+
+    def plot_compare(
+        self,
+        *,
+        kind: str = "timeseries",
+        **sel: object,
+    ) -> go.Figure:
+        """Plot ``original`` vs ``reconstructed`` as a plotly figure.
+
+        The single most common check after aggregating — overlays the two
+        series (Original dotted, Reconstructed solid) on the original time
+        axis, coloured by cluster column and faceted over any slice dims.
+        Built from `to_dataframe`; use that (or `compare`) directly if you
+        want the underlying data instead of a figure.
+
+        Requires ``plotly`` (``pip install "tsam_xarray[plot]"``).
+
+        Args:
+            kind: ``"timeseries"`` (default) plots against time;
+                ``"duration_curve"`` plots each series sorted descending.
+            **sel: Optional label-based selection forwarded to
+                `compare`, e.g. ``plot_compare(variable="solar")`` to plot
+                a single column. Omit to plot all columns.
+
+        Returns:
+            A plotly ``Figure``.
+
+        Raises:
+            ImportError: If plotly is not installed.
+            ValueError: If ``kind`` is not a recognised value.
+
+        Examples:
+            >>> agg.plot_compare(kind="duration_curve").show()
+        """
+        try:
+            import plotly.express as px
+        except ImportError as exc:
+            msg = (
+                'plotly is required for plot_compare(): pip install "tsam_xarray[plot]"'
+            )
+            raise ImportError(msg) from exc
+
+        if kind not in ("timeseries", "duration_curve"):
+            msg = f"kind must be 'timeseries' or 'duration_curve', got {kind!r}"
+            raise ValueError(msg)
+
+        df = self.to_dataframe(**sel)
+        time_dim = self.clustering.time_dim
+        cluster_dims = [d for d in self.clustering.cluster_dim if d in df.columns]
+        slice_dims = [d for d in self.clustering.slice_dims if d in df.columns]
+        known = {"variant", time_dim, *cluster_dims, *slice_dims}
+        value = next(c for c in df.columns if c not in known)
+
+        # Colour by the cluster column(s); with no cluster dim, colour by
+        # variant so the two series still separate.
+        if not cluster_dims:
+            color = "variant"
+        elif len(cluster_dims) == 1:
+            color = cluster_dims[0]
+        else:
+            df["_column"] = df[cluster_dims].astype(str).agg(" | ".join, axis=1)
+            color = "_column"
+
+        facet_col = slice_dims[0] if len(slice_dims) >= 1 else None
+        facet_row = slice_dims[1] if len(slice_dims) >= 2 else None
+
+        if kind == "duration_curve":
+            group_cols = [
+                c for c in ("variant", *cluster_dims, *slice_dims) if c in df.columns
+            ]
+            df = df.sort_values(value, ascending=False)
+            df["_rank"] = df.groupby(group_cols, sort=False).cumcount()
+            x, x_title = "_rank", "Duration rank (sorted descending)"
+        else:
+            x, x_title = time_dim, time_dim
+
+        fig = px.line(
+            df,
+            x=x,
+            y=value,
+            color=color,
+            line_dash="variant",
+            line_dash_map={"original": "dot", "reconstructed": "solid"},
+            facet_col=facet_col,
+            facet_row=facet_row,
+            category_orders={"variant": ["original", "reconstructed"]},
+            title=f"Original vs reconstructed ({kind})",
+        )
+        if kind == "duration_curve":
+            fig.update_xaxes(title_text=x_title)
+        return fig
 
     def disaggregate(self, data: xr.DataArray) -> xr.DataArray:
         """Map data on ``(cluster, timestep)`` back to original time.

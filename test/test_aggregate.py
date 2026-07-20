@@ -1635,3 +1635,47 @@ class TestCompare:
         df = result.to_dataframe(variable="solar")
         assert "value" in df.columns
         assert list(df.columns).count("variant") == 1
+
+
+class TestPlotCompare:
+    """AggregationResult.plot_compare() (#95)."""
+
+    def _result(self, **kwargs):
+        da = _make_time_last_da()  # scenario slice dim, time last
+        return tsam_xarray.aggregate(
+            da, time_dim="time", cluster_dim="variable", n_clusters=4, **kwargs
+        )
+
+    def test_timeseries_all_columns_facets_slice_dim(self):
+        result = self._result()
+        fig = result.plot_compare()
+        # 2 scenarios (facets) x 2 variables x 2 variants
+        assert len(fig.data) == 8
+        # scenario becomes a facet column -> two x-axes
+        assert sum(k.startswith("xaxis") for k in fig.layout) == 2
+
+    def test_single_column_selection(self):
+        result = self._result()
+        fig = result.plot_compare(variable="solar")
+        # 2 scenarios x 1 variable x 2 variants
+        assert len(fig.data) == 4
+
+    def test_duration_curve(self):
+        result = self._result()
+        fig = result.plot_compare(kind="duration_curve")
+        assert len(fig.data) == 8
+        assert "Duration rank" in fig.layout.xaxis.title.text
+
+    def test_no_cluster_dim_colours_by_variant(self):
+        da = _make_time_last_da().isel(scenario=0, variable=0, drop=True)
+        result = tsam_xarray.aggregate(
+            da, time_dim="time", cluster_dim=(), n_clusters=4
+        )
+        fig = result.plot_compare()
+        # only original + reconstructed
+        assert len(fig.data) == 2
+
+    def test_invalid_kind_raises(self):
+        result = self._result()
+        with pytest.raises(ValueError, match="kind must be"):
+            result.plot_compare(kind="nope")
