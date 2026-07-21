@@ -1560,7 +1560,7 @@ class TestDimOrderConsistency:
         assert result.residuals.dims == result.original.dims
 
     def test_time_first_input_aligned(self):
-        da = _make_da(scenarios=["low", "high"])  # dims start with time
+        da = _make_da(scenarios=["low", "high"])
         result = tsam_xarray.aggregate(
             da,
             time_dim="time",
@@ -1577,6 +1577,26 @@ class TestDimOrderConsistency:
         )
         assert result.reconstructed.dims == result.original.dims == da.dims
 
+    def test_non_alphabetical_coord_order_preserved(self):
+        """reconstructed keeps the input's coord order, not tsam's sorted one."""
+        time = pd.date_range("2020-01-01", periods=5 * 24, freq="h")
+        rng = np.random.default_rng(0)
+        da = xr.DataArray(
+            rng.random((len(time), 3)),
+            dims=["time", "variable"],
+            coords={"time": time, "variable": ["wind", "solar", "demand"]},
+            name="p",
+        )
+        result = tsam_xarray.aggregate(
+            da, time_dim="time", cluster_dim="variable", n_clusters=3
+        )
+        assert list(result.reconstructed["variable"].values) == [
+            "wind",
+            "solar",
+            "demand",
+        ]
+        assert not bool(result.reconstructed.isnull().any())
+
 
 class TestCompare:
     """AggregationResult.compare() and .to_dataframe() (#92)."""
@@ -1590,7 +1610,6 @@ class TestCompare:
         assert cmp.dims == ("variant", *result.original.dims)
         assert list(cmp["variant"].values) == ["original", "reconstructed"]
         assert cmp.name == "power"
-        # The two variants match the source arrays.
         xr.testing.assert_equal(cmp.sel(variant="original", drop=True), result.original)
         xr.testing.assert_equal(
             cmp.sel(variant="reconstructed", drop=True), result.reconstructed
@@ -1614,7 +1633,6 @@ class TestCompare:
         assert "variant" in df.columns
         assert "power" in df.columns
         assert set(df["variant"].unique()) == {"original", "reconstructed"}
-        # long-form: one row per (variant, scenario, time)
         n_time = da.sizes["time"]
         assert len(df) == 2 * da.sizes["scenario"] * n_time
 
