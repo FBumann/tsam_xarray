@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.2](https://github.com/FBumann/tsam_xarray/compare/v0.6.1...v0.6.2) (2026-07-21)
+
+
+### Features
+
+* first-class original-vs-reconstructed comparison on AggregationResult ([#93](https://github.com/FBumann/tsam_xarray/issues/93)) ([b3fd174](https://github.com/FBumann/tsam_xarray/commit/b3fd174cdbe379eb1de586aba5bfb75c0e4d21bb))
+
+
+### Bug Fixes
+
+* align reconstructed coordinate order with input (+ comparison recipe) ([#97](https://github.com/FBumann/tsam_xarray/issues/97)) ([afd6818](https://github.com/FBumann/tsam_xarray/commit/afd6818715704822bacfad6edfa5c6595e9f8fc4))
+
 ## [0.6.1](https://github.com/FBumann/tsam_xarray/compare/v0.6.0...v0.6.1) (2026-07-09)
 
 
