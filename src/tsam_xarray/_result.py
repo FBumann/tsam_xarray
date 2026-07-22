@@ -10,6 +10,7 @@ import xarray as xr
 
 if TYPE_CHECKING:
     from tsam_xarray._clustering import ClusteringResult
+    from tsam_xarray._dim_names import DimNames
 
 
 @dataclass(frozen=True, repr=False)
@@ -104,14 +105,19 @@ class AggregationResult:
         )
 
     @property
+    def dim_names(self) -> DimNames:
+        """Names of the structural output dimensions. See `DimNames`."""
+        return self.clustering.dim_names
+
+    @property
     def n_clusters(self) -> int:
         """Number of cluster representative clusters."""
-        return int(self.cluster_weights.sizes["cluster"])
+        return int(self.cluster_weights.sizes[self.dim_names.cluster])
 
     @property
     def n_timesteps_per_period(self) -> int:
         """Number of timesteps per cluster representative."""
-        return int(self.cluster_representatives.sizes["timestep"])
+        return int(self.cluster_representatives.sizes[self.dim_names.timestep])
 
     @property
     def n_segments(self) -> int | None:
@@ -264,6 +270,7 @@ class AggregationResult:
                 cluster_dim=self.clustering.cluster_dim,
                 slice_dims=[],
                 clusterings={(): cr},
+                dim_names=self.clustering.dim_names,
             ),
         )
 
@@ -272,4 +279,4 @@ class AggregationResult:
         from tsam_xarray._clustering import _disaggregate_single
 
         cr = self.clustering.clusterings[()]
-        return _disaggregate_single(cr, data)
+        return _disaggregate_single(cr, data, self.clustering.dim_names)

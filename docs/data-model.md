@@ -41,6 +41,34 @@ graph LR
 
 </div>
 
+### Custom output dimension names
+
+`aggregate()` adds four structural dimensions to its results that do not
+exist in the input: `cluster`, `timestep`, `period` (in
+`cluster_assignments`), and `segment` (segmented runs). These names are
+reserved — an input dimension of the same name raises an error.
+
+Pass a `DimNames` to rename them, e.g. when a caller already has a
+`period` dimension (multi-period optimization models):
+
+```python
+from tsam_xarray import DimNames, aggregate
+
+result = aggregate(
+    da,  # has a slice dim literally named "period"
+    time_dim="time",
+    cluster_dim="variable",
+    n_clusters=8,
+    dim_names=DimNames(period="original_period"),
+)
+result.cluster_assignments.dims  # ("original_period", ...)
+```
+
+The resolved names are stored on `ClusteringResult`, so `apply()`,
+`disaggregate()`, and the JSON round-trip all reproduce them. `dim_names`
+defaults to `None`, which keeps today's names. The chosen names must be
+unique and must not collide with any input dimension.
+
 ## ClusteringResult
 
 The reusable part — knows *how* the time series was clustered,
