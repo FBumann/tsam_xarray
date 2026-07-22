@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -1371,6 +1373,63 @@ class TestClusteringIO:
         new_result = clustering.apply(da_flat)
         dis = new_result.disaggregate(new_result.cluster_representatives)
         xr.testing.assert_allclose(dis, new_result.reconstructed)
+
+
+class TestApplyWeightTransfer:
+    """Transferring a weighted clustering to differently-composed data.
+
+    Works around tsam#396: ``ClusteringResult.apply()`` hard-fails when a
+    stored weight column is missing from the new data. We drop the weights
+    and warn instead, since at apply time weights cannot change selection.
+    """
+
+    def _weighted_clustering(self):
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da_flat,
+            time_dim="time",
+            cluster_dim="variable",
+            n_clusters=4,
+            weights={"solar": 5.0, "wind": 1.0},
+        )
+        return result.clustering, da_flat
+
+    def test_apply_warns_and_drops_missing_weight_columns(self):
+        """Applying to data without a weighted column warns, not raises."""
+        clustering, da_flat = self._weighted_clustering()
+        new_da = da_flat.sel(variable=["wind"])  # 'solar' (weighted) absent
+        with pytest.warns(UserWarning, match="absent from the new data"):
+            new_result = clustering.apply(new_da)
+        assert "solar" not in new_result.cluster_representatives["variable"].values
+        assert new_result.reconstructed.notnull().all()
+
+    def test_apply_no_warning_when_all_weight_columns_present(self):
+        """Same composition keeps weights and emits no warning."""
+        clustering, da_flat = self._weighted_clustering()
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            new_result = clustering.apply(da_flat)
+        assert new_result.n_clusters == 4
+
+    def test_upstream_still_rejects_missing_weight_columns(self):
+        """Canary: when raw tsam stops raising, tsam#396 is fixed.
+
+        Remove ``_drop_missing_weights`` and this test once that lands.
+        """
+        import tsam
+
+        idx = pd.date_range("2020-01-01", periods=24 * 20, freq="h")
+        rng = np.random.default_rng(0)
+        df = pd.DataFrame(
+            {"a": rng.random(len(idx)), "b": rng.random(len(idx))},
+            index=idx,
+        )
+        cr = tsam.aggregate(
+            df, 4, period_duration=24, weights={"a": 5.0, "b": 0.1}
+        ).clustering
+        with pytest.raises(ValueError, match="Weight columns not found"):
+            cr.apply(df.drop(columns=["b"]))
 
 
 class TestClusteringDisaggregate:
