@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.4](https://github.com/FBumann/tsam_xarray/compare/v0.6.3...v0.6.4) (2026-07-22)
+
+
+### Features
+
+* make output dimension names configurable via DimNames ([#101](https://github.com/FBumann/tsam_xarray/issues/101)) ([558fb9d](https://github.com/FBumann/tsam_xarray/commit/558fb9da4014d4bdd05515f79fef5c542c17239e)), closes [#99](https://github.com/FBumann/tsam_xarray/issues/99)
+
 ## [0.6.3](https://github.com/FBumann/tsam_xarray/compare/v0.6.2...v0.6.3) (2026-07-22)
 
 
