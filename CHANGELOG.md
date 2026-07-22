@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.3](https://github.com/FBumann/tsam_xarray/compare/v0.6.2...v0.6.3) (2026-07-22)
+
+
+### Bug Fixes
+
+* drop stored weights on apply() when columns are absent ([#100](https://github.com/FBumann/tsam_xarray/issues/100)) ([5616d1c](https://github.com/FBumann/tsam_xarray/commit/5616d1c14923c00e0bd795e7ea75193d457d6860))
+
 ## [0.6.2](https://github.com/FBumann/tsam_xarray/compare/v0.6.1...v0.6.2) (2026-07-21)
 
 
