@@ -560,6 +560,43 @@ def _validate_apply(
         raise ValueError(msg)
 
 
+def _drop_missing_weights(
+    cr: tsam.ClusteringResult, df: pd.DataFrame
+) -> tsam.ClusteringResult:
+    """Strip stored clustering weights when they reference absent columns.
+
+    tsam's ``ClusteringResult.apply()`` hard-fails when a stored weight column
+    is missing from the new data, which blocks transferring a clustering to a
+    differently-composed dataset. At apply time the cluster assignments and
+    centers are already fixed, so weights cannot change which periods are
+    selected — their only remaining effect is on the weighted accuracy
+    metrics. When a weighted column is absent we drop all weights and warn.
+
+    Tracking upstream fix: https://github.com/FZJ-IEK3-VSA/tsam/issues/396.
+    Once that lands, ``test_upstream_still_rejects_missing_weight_columns``
+    fails and this workaround can be removed.
+    """
+    import dataclasses
+    import warnings
+
+    weights = getattr(cr, "weights", None)
+    if not weights:
+        return cr
+    missing = set(weights) - set(df.columns)
+    if not missing:
+        return cr
+
+    warnings.warn(
+        f"Stored clustering weights reference columns absent from the new "
+        f"data ({sorted(map(str, missing))}); dropping all weights. "
+        f"Representatives and reconstruction are unaffected — only the "
+        f"weighted accuracy metrics change.",
+        UserWarning,
+        stacklevel=3,
+    )
+    return dataclasses.replace(cr, weights=None)
+
+
 def _apply_single(
     da: xr.DataArray,
     cr: tsam.ClusteringResult,
@@ -580,6 +617,7 @@ def _apply_single(
     from tsam_xarray._result import AccuracyMetrics, AggregationResult
 
     df = _to_dataframe(da, time_dim, col_dims)
+    cr = _drop_missing_weights(cr, df)
     tsam_result = cr.apply(df, **tsam_kwargs)
 
     typical = _representatives_to_da(tsam_result.cluster_representatives, col_dims)
