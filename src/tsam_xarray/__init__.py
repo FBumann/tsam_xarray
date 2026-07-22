@@ -2,6 +2,7 @@
 
 from tsam_xarray._clustering import ClusteringInfo, ClusteringResult
 from tsam_xarray._core import aggregate
+from tsam_xarray._dim_names import DimNames
 from tsam_xarray._result import AccuracyMetrics, AggregationResult
 from tsam_xarray._tuning import (
     TuningResult,
@@ -18,6 +19,7 @@ __all__ = [
     "AggregationResult",
     "ClusteringInfo",
     "ClusteringResult",
+    "DimNames",
     "TuningResult",
     "aggregate",
     "find_best_combination",

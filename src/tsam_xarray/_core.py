@@ -11,6 +11,7 @@ import pandas as pd
 import tsam
 import xarray as xr
 
+from tsam_xarray._dim_names import DimNames
 from tsam_xarray._result import AccuracyMetrics, AggregationResult
 
 Weights = dict[str, float] | dict[str, dict[str, float]] | None
@@ -25,6 +26,7 @@ def aggregate(
     n_clusters: int,
     weights: Weights = None,
     cluster_on: ClusterOn = None,
+    dim_names: DimNames | None = None,
     **tsam_kwargs: Any,
 ) -> AggregationResult:
     """Aggregate an xarray DataArray using tsam.
@@ -88,13 +90,21 @@ def aggregate(
               extreme periods are identified only on the
               clustered-on columns.
 
+        dim_names: Names for the structural output dimensions
+            (``cluster``, ``timestep``, ``period``, ``segment``).
+            ``None`` (default) keeps today's names. Override to
+            avoid collisions with the caller's own dimension
+            names. See `DimNames`.
+
         **tsam_kwargs: Additional keyword arguments passed to
             ``tsam.aggregate()``.
     """
+    resolved_dim_names = dim_names if dim_names is not None else DimNames()
     _validate_time_dim(da, time_dim)
     col_dims = _resolve_cluster_dim(cluster_dim)
     slice_dims = _infer_slice_dims(da, time_dim, col_dims)
     _validate(da, time_dim, col_dims, slice_dims)
+    _validate_dim_names(resolved_dim_names, time_dim, col_dims, slice_dims)
     da = _validate_data(da, time_dim, col_dims, slice_dims)
     _validate_no_cluster_config_weights(tsam_kwargs)
     per_dim_weights = _normalize_weights(weights, da, col_dims)
@@ -110,6 +120,7 @@ def aggregate(
             per_dim_weights,
             active_coords,
             tsam_kwargs,
+            resolved_dim_names,
         )
 
     slice_coords = {d: da.coords[d].values for d in slice_dims}
@@ -128,6 +139,7 @@ def aggregate(
             per_dim_weights,
             active_coords,
             tsam_kwargs,
+            resolved_dim_names,
         )
         results.append(r)
 
@@ -254,7 +266,22 @@ def _validate(
             raise ValueError(msg)
 
 
-_RESERVED_DIMS = {"cluster", "timestep", "period"}
+def _validate_dim_names(
+    dim_names: DimNames,
+    time_dim: str,
+    col_dims: list[str],
+    slice_dims: list[str],
+) -> None:
+    """Reject output dimension names that collide with input dimensions."""
+    input_dims = {time_dim, *col_dims, *slice_dims}
+    conflict = input_dims & set(dim_names.as_tuple())
+    if conflict:
+        msg = (
+            f"Output dimension names {conflict} collide with input dimension "
+            "names. Rename them in your input DataArray, or pass a DimNames "
+            "with different names via dim_names=."
+        )
+        raise ValueError(msg)
 
 
 def _validate_data(
@@ -267,17 +294,6 @@ def _validate_data(
 
     Returns the (possibly computed) DataArray.
     """
-    # Reserved dimension names
-    all_user_dims = {time_dim, *col_dims, *slice_dims}
-    reserved_conflict = all_user_dims & _RESERVED_DIMS
-    if reserved_conflict:
-        msg = (
-            f"Dimension names {reserved_conflict} are reserved by "
-            "tsam_xarray for output dimensions. Rename them in "
-            "your input DataArray."
-        )
-        raise ValueError(msg)
-
     # Dask arrays — compute before other checks
     if hasattr(da.data, "dask"):
         import warnings
@@ -369,6 +385,7 @@ def _to_dataframe(
 def _representatives_to_da(
     df: pd.DataFrame,
     col_dims: list[str],
+    dim_names: DimNames,
 ) -> xr.DataArray:
     """Convert cluster_representatives DataFrame to DataArray."""
     df = df.copy()
@@ -376,7 +393,7 @@ def _representatives_to_da(
     # Without: 2 levels: (cluster, timestep)
     if isinstance(df.index, pd.MultiIndex) and df.index.nlevels == 3:
         df.index = df.index.droplevel(2)  # drop segment_duration
-    df.index.names = ["cluster", "timestep"]
+    df.index.names = [dim_names.cluster, dim_names.timestep]
 
     if not col_dims:
         clusters = df.index.get_level_values(0).unique()
@@ -384,8 +401,8 @@ def _representatives_to_da(
         values = df.values.squeeze(axis=1).reshape(len(clusters), len(timesteps))
         return xr.DataArray(
             values,
-            dims=["cluster", "timestep"],
-            coords={"cluster": clusters, "timestep": timesteps},
+            dims=[dim_names.cluster, dim_names.timestep],
+            coords={dim_names.cluster: clusters, dim_names.timestep: timesteps},
         )
 
     stacked = df.stack(df.columns.names, future_stack=True)
@@ -395,6 +412,7 @@ def _representatives_to_da(
 
 def _segment_durations_to_da(
     raw_durations: tuple[tuple[int, ...], ...] | None,
+    dim_names: DimNames,
 ) -> xr.DataArray | None:
     """Convert tsam segment_durations to DataArray."""
     if raw_durations is None:
@@ -402,10 +420,10 @@ def _segment_durations_to_da(
     data = np.array(raw_durations)  # (n_clusters, n_segments)
     return xr.DataArray(
         data,
-        dims=["cluster", "timestep"],
+        dims=[dim_names.cluster, dim_names.timestep],
         coords={
-            "cluster": np.arange(data.shape[0]),
-            "timestep": np.arange(data.shape[1]),
+            dim_names.cluster: np.arange(data.shape[0]),
+            dim_names.timestep: np.arange(data.shape[1]),
         },
     )
 
@@ -625,6 +643,7 @@ def _aggregate_single(
     weights: dict[str, dict[str, float]] | None,
     active_coords: dict[str, set[str]] | None,
     tsam_kwargs: dict[str, Any],
+    dim_names: DimNames,
 ) -> AggregationResult:
     """Run a single tsam aggregation on a DataArray.
 
@@ -663,7 +682,7 @@ def _aggregate_single(
         apply_kwargs = {k: v for k, v in tsam_kwargs.items() if k in _APPLY_KWARGS}
         tsam_result = clustering.apply(df, **apply_kwargs)
 
-    return _result_from_tsam(tsam_result, da, df, time_dim, col_dims)
+    return _result_from_tsam(tsam_result, da, df, time_dim, col_dims, dim_names)
 
 
 def _result_from_tsam(
@@ -672,9 +691,12 @@ def _result_from_tsam(
     df: pd.DataFrame,
     time_dim: str,
     col_dims: list[str],
+    dim_names: DimNames,
 ) -> AggregationResult:
     """Build an AggregationResult from a tsam aggregation result."""
-    typical = _representatives_to_da(tsam_result.cluster_representatives, col_dims)
+    typical = _representatives_to_da(
+        tsam_result.cluster_representatives, col_dims, dim_names
+    )
     reconstructed = _reconstructed_to_da(tsam_result.reconstructed, time_dim, col_dims)
     # tsam emits reconstructed as (time, *cluster_dims); reorder to match the
     # input's dim order so `original` and `reconstructed` always align for
@@ -685,11 +707,13 @@ def _result_from_tsam(
     cluster_ids = np.array(sorted(cw.keys()))
     cluster_weights_da = xr.DataArray(
         np.array([cw[k] for k in cluster_ids]),
-        dims=["cluster"],
-        coords={"cluster": cluster_ids},
+        dims=[dim_names.cluster],
+        coords={dim_names.cluster: cluster_ids},
     )
 
-    assignments_da = xr.DataArray(tsam_result.cluster_assignments, dims=["period"])
+    assignments_da = xr.DataArray(
+        tsam_result.cluster_assignments, dims=[dim_names.period]
+    )
 
     col_names: list[str] | None = None
     if isinstance(df.columns, pd.MultiIndex):
@@ -708,7 +732,7 @@ def _result_from_tsam(
         ),
     )
 
-    seg_durations = _segment_durations_to_da(tsam_result.segment_durations)
+    seg_durations = _segment_durations_to_da(tsam_result.segment_durations, dim_names)
 
     from tsam_xarray._clustering import ClusteringResult
 
@@ -717,6 +741,7 @@ def _result_from_tsam(
         cluster_dim=col_dims,
         slice_dims=[],
         clusterings={(): tsam_result.clustering},
+        dim_names=dim_names,
     )
 
     return AggregationResult(
@@ -803,6 +828,7 @@ def _concat_results(
         cluster_dim=first.clustering.cluster_dim,
         slice_dims=slice_dims,
         clusterings=merged_clusterings,
+        dim_names=first.clustering.dim_names,
     )
 
     return AggregationResult(

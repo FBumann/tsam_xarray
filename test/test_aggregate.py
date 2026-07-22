@@ -831,7 +831,7 @@ class TestDataValidation:
             dims=["time", "cluster"],
             coords={"time": time, "cluster": ["a", "b"]},
         )
-        with pytest.raises(ValueError, match="reserved"):
+        with pytest.raises(ValueError, match="collide"):
             tsam_xarray.aggregate(
                 da, time_dim="time", cluster_dim="cluster", n_clusters=4
             )
@@ -843,7 +843,7 @@ class TestDataValidation:
             dims=["time", "timestep"],
             coords={"time": time, "timestep": [0, 1]},
         )
-        with pytest.raises(ValueError, match="reserved"):
+        with pytest.raises(ValueError, match="collide"):
             tsam_xarray.aggregate(
                 da, time_dim="time", cluster_dim="timestep", n_clusters=4
             )
@@ -859,13 +859,109 @@ class TestDataValidation:
                 "period": [0, 1],
             },
         )
-        with pytest.raises(ValueError, match="reserved"):
+        with pytest.raises(ValueError, match="collide"):
             tsam_xarray.aggregate(
                 da,
                 time_dim="time",
                 cluster_dim="variable",
                 n_clusters=4,
             )
+
+
+class TestDimNames:
+    def _period_da(self) -> xr.DataArray:
+        time = pd.date_range("2020-01-01", periods=30 * 24, freq="h")
+        return xr.DataArray(
+            np.random.default_rng(42).random((len(time), 2, 2)),
+            dims=["time", "variable", "period"],
+            coords={"time": time, "variable": ["a", "b"], "period": [0, 1]},
+        )
+
+    def test_default_reproduces_current_names(self):
+        da = _make_da()
+        result = tsam_xarray.aggregate(
+            da, n_clusters=4, time_dim="time", cluster_dim="variable"
+        )
+        assert result.dim_names == tsam_xarray.DimNames()
+        assert set(result.cluster_representatives.dims) >= {"cluster", "timestep"}
+        assert set(result.cluster_assignments.dims) == {"period", "region"}
+
+    def test_custom_names_applied(self):
+        da = _make_da()
+        dn = tsam_xarray.DimNames(cluster="rep", timestep="intra", period="orig_period")
+        result = tsam_xarray.aggregate(
+            da, n_clusters=4, time_dim="time", cluster_dim="variable", dim_names=dn
+        )
+        assert set(result.cluster_representatives.dims) >= {"rep", "intra"}
+        assert "orig_period" in result.cluster_assignments.dims
+        assert set(result.cluster_weights.dims) == {"rep", "region"}
+        assert result.n_clusters == 4
+        assert result.n_timesteps_per_period == 24
+
+    def test_renamed_period_frees_input_dim(self):
+        da = self._period_da()
+        dn = tsam_xarray.DimNames(period="orig_period")
+        result = tsam_xarray.aggregate(
+            da, n_clusters=4, time_dim="time", cluster_dim="variable", dim_names=dn
+        )
+        assert "period" in result.cluster_representatives.dims
+        assert "orig_period" in result.cluster_assignments.dims
+
+    def test_collision_still_raises_with_partial_rename(self):
+        da = self._period_da()
+        dn = tsam_xarray.DimNames(cluster="rep")
+        with pytest.raises(ValueError, match="collide"):
+            tsam_xarray.aggregate(
+                da,
+                n_clusters=4,
+                time_dim="time",
+                cluster_dim="variable",
+                dim_names=dn,
+            )
+
+    def test_dim_names_must_be_unique(self):
+        with pytest.raises(ValueError, match="unique"):
+            tsam_xarray.DimNames(cluster="x", timestep="x")
+
+    def test_apply_reuses_stored_names(self):
+        da = _make_da()
+        dn = tsam_xarray.DimNames(cluster="rep", timestep="intra")
+        result = tsam_xarray.aggregate(
+            da, n_clusters=4, time_dim="time", cluster_dim="variable", dim_names=dn
+        )
+        applied = result.clustering.apply(da)
+        assert set(applied.cluster_representatives.dims) >= {"rep", "intra"}
+
+    def test_disaggregate_roundtrip_custom_names(self):
+        da = _make_da()
+        dn = tsam_xarray.DimNames(cluster="rep", timestep="intra")
+        result = tsam_xarray.aggregate(
+            da, n_clusters=4, time_dim="time", cluster_dim="variable", dim_names=dn
+        )
+        back = result.disaggregate(result.cluster_representatives)
+        assert "time" in back.dims
+
+    def test_json_roundtrip_preserves_names(self, tmp_path):
+        da = _make_da()
+        dn = tsam_xarray.DimNames(period="orig_period", cluster="rep")
+        result = tsam_xarray.aggregate(
+            da, n_clusters=4, time_dim="time", cluster_dim="variable", dim_names=dn
+        )
+        path = tmp_path / "clustering.json"
+        result.clustering.to_json(path)
+        loaded = tsam_xarray.ClusteringResult.from_json(path)
+        assert loaded.dim_names == dn
+        assert "orig_period" in loaded.cluster_assignments.dims
+
+    def test_from_dict_defaults_names_for_legacy_blob(self):
+        da = _make_da()
+        result = tsam_xarray.aggregate(
+            da, n_clusters=4, time_dim="time", cluster_dim="variable"
+        )
+        blob = result.clustering.to_dict()
+        del blob["dim_names"]
+        loaded = tsam_xarray.ClusteringResult.from_dict(blob)
+        assert loaded.dim_names == tsam_xarray.DimNames()
 
     def test_dask_array_warns(self):
         pytest.importorskip("dask")

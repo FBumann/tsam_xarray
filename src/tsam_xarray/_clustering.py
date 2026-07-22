@@ -19,6 +19,7 @@ from tsam_xarray._core import (
     _resolve_cluster_dim,
     _segment_durations_to_da,
 )
+from tsam_xarray._dim_names import DimNames
 
 
 @dataclass(frozen=True, repr=False)
@@ -53,12 +54,15 @@ class ClusteringResult:
         segment_centers: Representative timestep per segment,
             or ``None``.
             Dims: ``(cluster, segment, *slice_dims)``.
+        dim_names: Names of the structural output dimensions.
+            See `DimNames`.
     """
 
     time_dim: str
     cluster_dim: list[str]
     slice_dims: list[str]
     clusterings: dict[tuple[Hashable, ...], tsam.ClusteringResult]
+    dim_names: DimNames = field(default_factory=DimNames)
     _cache: dict[str, Any] = field(
         default_factory=dict, repr=False, init=False, compare=False
     )
@@ -125,14 +129,19 @@ class ClusteringResult:
     def _build_assignments(self) -> xr.DataArray:
         if not self.slice_dims:
             cr = self.clusterings[()]
-            return xr.DataArray(list(cr.cluster_assignments), dims=["period"])
+            return xr.DataArray(
+                list(cr.cluster_assignments), dims=[self.dim_names.period]
+            )
 
         import itertools
 
         sc = self._slice_coords
         keys = list(itertools.product(*(sc[d] for d in self.slice_dims)))
         arrays = [
-            xr.DataArray(list(self.clusterings[k].cluster_assignments), dims=["period"])
+            xr.DataArray(
+                list(self.clusterings[k].cluster_assignments),
+                dims=[self.dim_names.period],
+            )
             for k in keys
         ]
         return _concat_along_dims(arrays, self.slice_dims, sc)
@@ -153,8 +162,8 @@ class ClusteringResult:
             counts = np.bincount(cr.cluster_assignments, minlength=cr.n_clusters)
             return xr.DataArray(
                 counts,
-                dims=["cluster"],
-                coords={"cluster": np.arange(cr.n_clusters)},
+                dims=[self.dim_names.cluster],
+                coords={self.dim_names.cluster: np.arange(cr.n_clusters)},
             )
 
         if not self.slice_dims:
@@ -180,18 +189,24 @@ class ClusteringResult:
 
     def _build_segment_durations(self) -> xr.DataArray | None:
         if not self.slice_dims:
-            return _segment_durations_to_da(self.clusterings[()].segment_durations)
+            return _segment_durations_to_da(
+                self.clusterings[()].segment_durations, self.dim_names
+            )
 
         import itertools
 
         sc = self._slice_coords
         keys = list(itertools.product(*(sc[d] for d in self.slice_dims)))
-        first = _segment_durations_to_da(self.clusterings[keys[0]].segment_durations)
+        first = _segment_durations_to_da(
+            self.clusterings[keys[0]].segment_durations, self.dim_names
+        )
         if first is None:
             return None
         das: list[xr.DataArray] = [first]
         for k in keys[1:]:
-            da = _segment_durations_to_da(self.clusterings[k].segment_durations)
+            da = _segment_durations_to_da(
+                self.clusterings[k].segment_durations, self.dim_names
+            )
             if da is None:
                 msg = (
                     f"Slice {k} has no segment durations but the first "
@@ -220,8 +235,8 @@ class ClusteringResult:
                 raise ValueError(msg)
             return xr.DataArray(
                 list(centers),
-                dims=["cluster"],
-                coords={"cluster": np.arange(cr.n_clusters)},
+                dims=[self.dim_names.cluster],
+                coords={self.dim_names.cluster: np.arange(cr.n_clusters)},
             )
 
         if not self.slice_dims:
@@ -251,10 +266,10 @@ class ClusteringResult:
                 return None
             return xr.DataArray(
                 np.array(cr.segment_assignments),
-                dims=["cluster", "timestep"],
+                dims=[self.dim_names.cluster, self.dim_names.timestep],
                 coords={
-                    "cluster": np.arange(cr.n_clusters),
-                    "timestep": np.arange(cr.n_timesteps_per_period),
+                    self.dim_names.cluster: np.arange(cr.n_clusters),
+                    self.dim_names.timestep: np.arange(cr.n_timesteps_per_period),
                 },
             )
 
@@ -298,10 +313,10 @@ class ClusteringResult:
             n_segments = cr.n_segments or len(cr.segment_centers[0])
             return xr.DataArray(
                 np.array(cr.segment_centers),
-                dims=["cluster", "segment"],
+                dims=[self.dim_names.cluster, self.dim_names.segment],
                 coords={
-                    "cluster": np.arange(cr.n_clusters),
-                    "segment": np.arange(n_segments),
+                    self.dim_names.cluster: np.arange(cr.n_clusters),
+                    self.dim_names.segment: np.arange(n_segments),
                 },
             )
 
@@ -367,7 +382,7 @@ class ClusteringResult:
 
         if not slice_dims:
             cr = self.clusterings[()]
-            return _apply_single(da, cr, td, cd, tsam_kwargs)
+            return _apply_single(da, cr, td, cd, tsam_kwargs, self.dim_names)
 
         import itertools
 
@@ -380,7 +395,7 @@ class ClusteringResult:
             sel = dict(zip(slice_dims, key, strict=True))
             da_slice = da.sel(sel)
             cr = _lookup_clustering(self.clusterings, key)
-            r = _apply_single(da_slice, cr, td, cd, tsam_kwargs)
+            r = _apply_single(da_slice, cr, td, cd, tsam_kwargs, self.dim_names)
             results.append(r)
 
         return _concat_results(results, slice_dims, slice_coords, slice_keys)
@@ -408,7 +423,7 @@ class ClusteringResult:
         """
         slice_dims = self.slice_dims
         if not slice_dims:
-            return _disaggregate_single(self.clusterings[()], data)
+            return _disaggregate_single(self.clusterings[()], data, self.dim_names)
 
         import itertools
 
@@ -419,7 +434,7 @@ class ClusteringResult:
             sel = dict(zip(slice_dims, key, strict=True))
             data_slice = data.sel(sel)
             cr = _lookup_clustering(self.clusterings, key)
-            results.append(_disaggregate_single(cr, data_slice))
+            results.append(_disaggregate_single(cr, data_slice, self.dim_names))
 
         return _concat_along_dims(results, slice_dims, slice_coords)
 
@@ -442,6 +457,12 @@ class ClusteringResult:
             "time_dim": self.time_dim,
             "cluster_dim": self.cluster_dim,
             "slice_dims": self.slice_dims,
+            "dim_names": {
+                "cluster": self.dim_names.cluster,
+                "timestep": self.dim_names.timestep,
+                "period": self.dim_names.period,
+                "segment": self.dim_names.segment,
+            },
             "clusterings": entries,
         }
 
@@ -486,11 +507,15 @@ class ClusteringResult:
             key = tuple(entry["key"])
             clusterings[key] = tsam.ClusteringResult.from_dict(entry["clustering"])
 
+        dim_names_data = data.get("dim_names")
+        dim_names = DimNames(**dim_names_data) if dim_names_data else DimNames()
+
         return cls(
             time_dim=data["time_dim"],
             cluster_dim=data["cluster_dim"],
             slice_dims=data.get("slice_dims", []),
             clusterings=clusterings,
+            dim_names=dim_names,
         )
 
     @classmethod
@@ -566,6 +591,7 @@ def _apply_single(
     time_dim: str,
     col_dims: list[str],
     tsam_kwargs: dict[str, Any],
+    dim_names: DimNames,
 ) -> Any:
     """Apply a single ClusteringResult to a DataArray."""
     import pandas as pd
@@ -582,18 +608,22 @@ def _apply_single(
     df = _to_dataframe(da, time_dim, col_dims)
     tsam_result = cr.apply(df, **tsam_kwargs)
 
-    typical = _representatives_to_da(tsam_result.cluster_representatives, col_dims)
+    typical = _representatives_to_da(
+        tsam_result.cluster_representatives, col_dims, dim_names
+    )
     reconstructed = _reconstructed_to_da(tsam_result.reconstructed, time_dim, col_dims)
 
     cw = tsam_result.cluster_weights
     cluster_ids = np.array(sorted(cw.keys()))
     cluster_weights_da = xr.DataArray(
         np.array([cw[k] for k in cluster_ids]),
-        dims=["cluster"],
-        coords={"cluster": cluster_ids},
+        dims=[dim_names.cluster],
+        coords={dim_names.cluster: cluster_ids},
     )
 
-    assignments_da = xr.DataArray(tsam_result.cluster_assignments, dims=["period"])
+    assignments_da = xr.DataArray(
+        tsam_result.cluster_assignments, dims=[dim_names.period]
+    )
 
     col_names: list[str] | None = None
     if isinstance(df.columns, pd.MultiIndex):
@@ -612,13 +642,14 @@ def _apply_single(
         ),
     )
 
-    seg_durations = _segment_durations_to_da(tsam_result.segment_durations)
+    seg_durations = _segment_durations_to_da(tsam_result.segment_durations, dim_names)
 
     clustering_info = ClusteringResult(
         time_dim=time_dim,
         cluster_dim=col_dims,
         slice_dims=[],
         clusterings={(): tsam_result.clustering},
+        dim_names=dim_names,
     )
 
     return AggregationResult(
@@ -637,18 +668,21 @@ def _apply_single(
 def _disaggregate_single(
     cr: tsam.ClusteringResult,
     data: xr.DataArray,
+    dim_names: DimNames,
 ) -> xr.DataArray:
     """Disaggregate a single (non-sliced) DataArray using a ClusteringResult.
 
     Relies on tsam's ``cr.disaggregate()`` to return a DataFrame indexed
     by the original ``DatetimeIndex`` stored on the clustering.
     """
-    other_dims = [str(d) for d in data.dims if d not in ("cluster", "timestep")]
-    ordered = data.transpose("cluster", "timestep", *other_dims)
+    cluster_dim = dim_names.cluster
+    timestep_dim = dim_names.timestep
+    other_dims = [str(d) for d in data.dims if d not in (cluster_dim, timestep_dim)]
+    ordered = data.transpose(cluster_dim, timestep_dim, *other_dims)
 
-    clusters = ordered.coords["cluster"].values
+    clusters = ordered.coords[cluster_dim].values
     n_clusters = len(clusters)
-    n_timesteps = ordered.sizes["timestep"]
+    n_timesteps = ordered.sizes[timestep_dim]
     other_sizes = ordered.shape[2:]
 
     flat = ordered.values.reshape(n_clusters * n_timesteps, -1)
