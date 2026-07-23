@@ -5,7 +5,7 @@ from __future__ import annotations
 import itertools
 import warnings
 from collections.abc import Hashable, Sequence
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -17,6 +17,20 @@ from tsam_xarray._result import AccuracyMetrics, AggregationResult
 
 Weights = dict[str, float] | dict[str, dict[str, float]] | None
 ClusterOn = str | Sequence[str] | dict[str, Sequence[str]] | None
+
+
+def _cluster_counts(tsam_result: Any) -> dict[int, float]:
+    """Per-cluster occurrence counts from a tsam result, across tsam versions.
+
+    tsam v4 renamed ``AggregationResult.cluster_weights`` to ``cluster_counts``
+    (the values were always occurrence counts, never weights). The v3 name is a
+    deprecated alias there and the only name on v3.4.x, so read the new name when
+    present and fall back to the old one.
+    """
+    counts = getattr(tsam_result, "cluster_counts", None)
+    if counts is None:
+        counts = tsam_result.cluster_weights
+    return cast("dict[int, float]", counts)
 
 
 def aggregate(
@@ -178,9 +192,18 @@ def _validate_time_dim(da: xr.DataArray, time_dim: str) -> None:
 def _validate_no_cluster_config_weights(
     tsam_kwargs: dict[str, Any],
 ) -> None:
-    """Reject deprecated weights in ClusterConfig."""
+    """Reject deprecated weights in ClusterConfig.
+
+    ``ClusterConfig.weights`` was a deprecated v3 field; tsam v4 removed it
+    entirely (constructing ``ClusterConfig(weights=...)`` raises ``TypeError``
+    before reaching here). ``getattr`` keeps this a no-op on v4, where the
+    field no longer exists.
+    """
     cluster_config = tsam_kwargs.get("cluster")
-    if cluster_config is not None and cluster_config.weights is not None:
+    if (
+        cluster_config is not None
+        and getattr(cluster_config, "weights", None) is not None
+    ):
         msg = (
             "ClusterConfig.weights is deprecated in tsam and not "
             "supported by tsam_xarray. Use the top-level 'weights' "
@@ -704,9 +727,9 @@ def _result_from_tsam(
     reconstructed = _reconstructed_to_da(tsam_result.reconstructed, time_dim, col_dims)
     reconstructed = reconstructed.transpose(*da.dims).reindex_like(da)
 
-    cw = tsam_result.cluster_weights
+    cw = _cluster_counts(tsam_result)
     cluster_ids = np.array(sorted(cw.keys()))
-    cluster_weights_da = xr.DataArray(
+    cluster_counts_da = xr.DataArray(
         np.array([cw[k] for k in cluster_ids]),
         dims=[dim_names.cluster],
         coords={dim_names.cluster: cluster_ids},
@@ -748,7 +771,7 @@ def _result_from_tsam(
     return AggregationResult(
         cluster_representatives=typical,
         cluster_assignments=assignments_da,
-        cluster_weights=cluster_weights_da,
+        cluster_counts=cluster_counts_da,
         segment_durations=seg_durations,
         accuracy=accuracy,
         reconstructed=reconstructed,
@@ -835,7 +858,7 @@ def _concat_results(
     return AggregationResult(
         cluster_representatives=_field("cluster_representatives"),
         cluster_assignments=_field("cluster_assignments"),
-        cluster_weights=_field("cluster_weights"),
+        cluster_counts=_field("cluster_counts"),
         segment_durations=_optional_field("segment_durations"),
         accuracy=AccuracyMetrics(
             rmse=_acc_field("rmse"),

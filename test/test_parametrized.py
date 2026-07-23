@@ -76,23 +76,23 @@ class TestClusterAssignments:
             assert len(unique) == agg_case.n_clusters
         # With slicing, each slice should use all clusters
 
-    def test_cluster_weights_sum(self, agg_case: AggregateCase):
+    def test_cluster_counts_sum(self, agg_case: AggregateCase):
         result = _aggregate(agg_case)
         if agg_case.expected_slice_dims:
             for key in np.ndindex(
-                *[result.cluster_weights.sizes[d] for d in agg_case.expected_slice_dims]
+                *[result.cluster_counts.sizes[d] for d in agg_case.expected_slice_dims]
             ):
                 sel = {
-                    d: result.cluster_weights.coords[d].values[i]
+                    d: result.cluster_counts.coords[d].values[i]
                     for d, i in zip(
                         agg_case.expected_slice_dims,
                         key,
                         strict=True,
                     )
                 }
-                assert int(result.cluster_weights.sel(sel).sum()) == agg_case.n_periods
+                assert int(result.cluster_counts.sel(sel).sum()) == agg_case.n_periods
         else:
-            assert int(result.cluster_weights.sum()) == agg_case.n_periods
+            assert int(result.cluster_counts.sum()) == agg_case.n_periods
 
 
 class TestAccuracyMetrics:
@@ -300,11 +300,11 @@ class TestClusteringResultProperties:
         assert set(da.dims) == {"cluster"} | agg_case.expected_slice_dims
 
     def test_cluster_occurrences_matches_weights(self, agg_case: AggregateCase):
-        """Occurrences match AggregationResult.cluster_weights."""
+        """Occurrences match AggregationResult.cluster_counts."""
         result = _aggregate(agg_case)
         np.testing.assert_array_equal(
             result.clustering.cluster_occurrences.values,
-            result.cluster_weights.values,
+            result.cluster_counts.values,
         )
 
     def test_cluster_occurrences_sum(self, agg_case: AggregateCase):

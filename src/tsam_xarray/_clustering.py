@@ -634,6 +634,7 @@ def _apply_single(
     import pandas as pd
 
     from tsam_xarray._core import (
+        _cluster_counts,
         _metric_to_da,
         _reconstructed_to_da,
         _representatives_to_da,
@@ -651,9 +652,9 @@ def _apply_single(
     )
     reconstructed = _reconstructed_to_da(tsam_result.reconstructed, time_dim, col_dims)
 
-    cw = tsam_result.cluster_weights
+    cw = _cluster_counts(tsam_result)
     cluster_ids = np.array(sorted(cw.keys()))
-    cluster_weights_da = xr.DataArray(
+    cluster_counts_da = xr.DataArray(
         np.array([cw[k] for k in cluster_ids]),
         dims=[dim_names.cluster],
         coords={dim_names.cluster: cluster_ids},
@@ -693,7 +694,7 @@ def _apply_single(
     return AggregationResult(
         cluster_representatives=typical,
         cluster_assignments=assignments_da,
-        cluster_weights=cluster_weights_da,
+        cluster_counts=cluster_counts_da,
         segment_durations=seg_durations,
         accuracy=accuracy,
         reconstructed=reconstructed,

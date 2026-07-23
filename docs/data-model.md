@@ -32,7 +32,7 @@ graph LR
     D --- F1[".cluster_representatives<br/><i>cluster, timestep, *cluster_dims, *slice_dims</i>"]
     D --- F2[".reconstructed<br/><i>same shape as input</i>"]
     D --- F3[".cluster_assignments<br/><i>period, *slice_dims</i>"]
-    D --- F4[".cluster_weights<br/><i>cluster, *slice_dims</i>"]
+    D --- F4[".cluster_counts<br/><i>cluster, *slice_dims</i>"]
     D --- F5[".segment_durations<br/><i>cluster, timestep, *slice_dims | None</i>"]
 
     Meta --- A[".accuracy<br/><b>→ AccuracyMetrics</b>"]

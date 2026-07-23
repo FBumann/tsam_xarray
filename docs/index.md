@@ -21,7 +21,7 @@ result = tsam_xarray.aggregate(
 )
 
 result.cluster_representatives   # (cluster, timestep, variable, region)
-result.cluster_weights   # (cluster,)
+result.cluster_counts   # (cluster,)
 result.accuracy.rmse     # (variable, region)
 result.reconstructed     # same shape as input
 ```
