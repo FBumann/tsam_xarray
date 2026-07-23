@@ -299,7 +299,7 @@ class TestClusteringResultProperties:
         da = result.clustering.cluster_occurrences
         assert set(da.dims) == {"cluster"} | agg_case.expected_slice_dims
 
-    def test_cluster_occurrences_matches_weights(self, agg_case: AggregateCase):
+    def test_cluster_occurrences_matches_counts(self, agg_case: AggregateCase):
         """Occurrences match AggregationResult.cluster_counts."""
         result = _aggregate(agg_case)
         np.testing.assert_array_equal(
