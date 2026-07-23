@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -66,8 +67,10 @@ class AggregationResult:
             *slice_dims)``.
         cluster_assignments: Which cluster each period
             belongs to. Dims: ``(period, *slice_dims)``.
-        cluster_weights: Periods per cluster.
-            Dims: ``(cluster, *slice_dims)``.
+        cluster_counts: Periods per cluster.
+            Dims: ``(cluster, *slice_dims)``. Formerly
+            ``cluster_weights``, which remains as a deprecated
+            alias (following tsam v4's rename).
         segment_durations: Duration of each segment, or
             ``None``. Dims: ``(cluster, timestep,
             *slice_dims)``.
@@ -83,7 +86,7 @@ class AggregationResult:
 
     cluster_representatives: xr.DataArray
     cluster_assignments: xr.DataArray
-    cluster_weights: xr.DataArray
+    cluster_counts: xr.DataArray
     segment_durations: xr.DataArray | None
     accuracy: AccuracyMetrics
     reconstructed: xr.DataArray
@@ -110,9 +113,24 @@ class AggregationResult:
         return self.clustering.dim_names
 
     @property
+    def cluster_weights(self) -> xr.DataArray:
+        """Deprecated alias for `cluster_counts`.
+
+        Renamed to match tsam v4, where the values are occurrence counts
+        rather than weights. Will be removed in a future release.
+        """
+        warnings.warn(
+            "AggregationResult.cluster_weights is deprecated; use "
+            "cluster_counts instead.",
+            FutureWarning,
+            stacklevel=2,
+        )
+        return self.cluster_counts
+
+    @property
     def n_clusters(self) -> int:
         """Number of cluster representative clusters."""
-        return int(self.cluster_weights.sizes[self.dim_names.cluster])
+        return int(self.cluster_counts.sizes[self.dim_names.cluster])
 
     @property
     def n_timesteps_per_period(self) -> int:
@@ -249,7 +267,7 @@ class AggregationResult:
         return AggregationResult(
             cluster_representatives=self.cluster_representatives.sel(sel),
             cluster_assignments=self.cluster_assignments.sel(sel),
-            cluster_weights=self.cluster_weights.sel(sel),
+            cluster_counts=self.cluster_counts.sel(sel),
             segment_durations=(
                 self.segment_durations.sel(sel)
                 if self.segment_durations is not None

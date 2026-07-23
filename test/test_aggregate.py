@@ -57,7 +57,7 @@ class TestBasicRoundtrip:
         assert result.cluster_representatives.sizes["cluster"] == 4
         assert result.cluster_representatives.sizes["timestep"] == 24
 
-    def test_cluster_weights_sum(self):
+    def test_cluster_counts_sum(self):
         da = _make_da()
         result = tsam_xarray.aggregate(
             da,
@@ -65,7 +65,19 @@ class TestBasicRoundtrip:
             time_dim="time",
             cluster_dim=["variable", "region"],
         )
-        assert int(result.cluster_weights.sum()) == 30
+        assert int(result.cluster_counts.sum()) == 30
+
+    def test_cluster_weights_deprecated_alias(self):
+        da = _make_da()
+        result = tsam_xarray.aggregate(
+            da,
+            n_clusters=4,
+            time_dim="time",
+            cluster_dim=["variable", "region"],
+        )
+        with pytest.warns(FutureWarning, match="cluster_counts"):
+            alias = result.cluster_weights
+        xr.testing.assert_identical(alias, result.cluster_counts)
 
     def test_cluster_assignments_shape(self):
         da = _make_da()
@@ -587,12 +599,17 @@ class TestValidation:
 
     @pytest.mark.filterwarnings("ignore::DeprecationWarning")
     def test_cluster_config_weights_rejected(self):
-        """ClusterConfig.weights is deprecated and not supported."""
+        """ClusterConfig.weights is deprecated and not supported.
+
+        On tsam v3 the wrapper rejects it with a ValueError pointing to the
+        top-level ``weights``; on tsam v4 the field is gone and ``ClusterConfig``
+        itself raises ``TypeError`` at construction. Either way it must fail.
+        """
         from tsam import ClusterConfig
 
         da = _make_da()
         da_flat = da.isel(region=0).drop_vars("region")
-        with pytest.raises(ValueError, match=r"ClusterConfig\.weights"):
+        with pytest.raises((ValueError, TypeError), match=r"weights"):
             tsam_xarray.aggregate(
                 da_flat,
                 n_clusters=4,
@@ -896,7 +913,7 @@ class TestDimNames:
         )
         assert set(result.cluster_representatives.dims) >= {"rep", "intra"}
         assert "orig_period" in result.cluster_assignments.dims
-        assert set(result.cluster_weights.dims) == {"rep", "region"}
+        assert set(result.cluster_counts.dims) == {"rep", "region"}
         assert result.n_clusters == 4
         assert result.n_timesteps_per_period == 24
 
