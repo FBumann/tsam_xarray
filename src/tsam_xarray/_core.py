@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import itertools
+import os
 import warnings
 from collections.abc import Hashable, Sequence
 from typing import Any, cast
@@ -42,6 +43,7 @@ def aggregate(
     weights: Weights = None,
     cluster_on: ClusterOn = None,
     dim_names: DimNames | None = None,
+    n_jobs: int | None = None,
     **tsam_kwargs: Any,
 ) -> AggregationResult:
     """Aggregate an xarray DataArray using tsam.
@@ -111,6 +113,15 @@ def aggregate(
             avoid collisions with the caller's own dimension
             names. See `DimNames`.
 
+        n_jobs: Number of threads for aggregating slices in
+            parallel. ``None`` or ``1`` (default) runs
+            sequentially; ``-1`` uses all CPUs, ``-2`` all but
+            one (joblib convention); a positive N uses exactly
+            N threads. Only used when slice dims are present.
+            Slices share no state, and the heavy numpy/scipy
+            work releases the GIL, so threads suffice — no
+            processes, no pickling.
+
         **tsam_kwargs: Additional keyword arguments passed to
             ``tsam.aggregate()``.
     """
@@ -141,13 +152,10 @@ def aggregate(
     slice_coords = {d: da.coords[d].values for d in slice_dims}
     slice_keys = list(itertools.product(*(slice_coords[d] for d in slice_dims)))
 
-    results: list[AggregationResult] = []
-
-    for key in slice_keys:
+    def _run_slice(key: tuple[Any, ...]) -> AggregationResult:
         sel = dict(zip(slice_dims, key, strict=True))
-        da_slice = da.sel(sel)
-        r = _aggregate_single(
-            da_slice,
+        return _aggregate_single(
+            da.sel(sel),
             n_clusters,
             time_dim,
             col_dims,
@@ -156,12 +164,36 @@ def aggregate(
             tsam_kwargs,
             resolved_dim_names,
         )
-        results.append(r)
+
+    n_workers = _resolve_n_workers(n_jobs, len(slice_keys))
+    if n_workers <= 1:
+        results = [_run_slice(key) for key in slice_keys]
+    else:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=n_workers) as executor:
+            results = list(executor.map(_run_slice, slice_keys))
 
     # Validate consistent cluster counts (can differ with extremes="append")
     _validate_consistent_cluster_counts(results, slice_keys)
 
     return _concat_results(results, slice_dims, slice_coords, slice_keys)
+
+
+def _resolve_n_workers(n_jobs: int | None, n_slices: int) -> int:
+    """Resolve n_jobs to a worker count, following the joblib convention.
+
+    ``None``/``1`` mean sequential, ``-1`` all CPUs, ``-2`` all but one, and
+    a positive N exactly N workers, capped at the number of slices.
+    """
+    if n_jobs is None or n_jobs == 1:
+        return 1
+    if n_jobs < 0:
+        cpus = os.cpu_count() or 1
+        workers = cpus + 1 + n_jobs
+    else:
+        workers = n_jobs
+    return max(1, min(workers, n_slices))
 
 
 def _resolve_cluster_dim(
