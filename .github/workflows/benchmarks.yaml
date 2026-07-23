@@ -58,7 +58,7 @@ jobs:
           git checkout --detach ${{ github.event.pull_request.base.sha }}
           git checkout ${{ github.sha }} -- benchmarks/
           rm -f uv.lock
-          uv run --with "$BENCHMEM" pytest benchmarks/ $BENCH_ARGS \
+          uv run --exact --with "$BENCHMEM" pytest benchmarks/ $BENCH_ARGS \
             --benchmark-json "$RUNNER_TEMP/base.json"
           uv run --no-sync python -c "import tsam; print('base tsam:', tsam.__version__)"
 
