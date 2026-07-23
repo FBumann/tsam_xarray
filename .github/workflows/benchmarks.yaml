@@ -5,6 +5,8 @@ name: Benchmarks
 # pinned benchmem version), then keep one sticky comment with the delta table
 # and upload an interactive plot artifact. Never blocks a merge — GitHub
 # runners are noisy, so treat the walltime deltas as a hint, not a gate.
+# Fork PRs run too (read-only token) and get the step summary and artifact;
+# only the sticky comment needs a writable token and is skipped for them.
 
 on:
   pull_request:
@@ -22,19 +24,16 @@ env:
 jobs:
   report:
     name: Head vs base
-    # Commenting needs a writable token; fork PRs only get a read-only one.
-    if: >-
-      ${{ github.event_name != 'pull_request' ||
-          github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-24.04
     continue-on-error: true # informational, never blocks a merge
     permissions:
       contents: read
-      pull-requests: write
+      pull-requests: write # no-op on fork PRs (read-only token); comment step is guarded
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0 # hatch-vcs + checkout of the base revision
+          persist-credentials: false # benchmarks execute PR code; keep the token out of .git/config
 
       - uses: astral-sh/setup-uv@v7
         with:
@@ -60,25 +59,30 @@ jobs:
           if [ -f "$RUNNER_TEMP/base.json" ]; then
             uv run --with "$BENCHMEM" benchmem compare \
               "$RUNNER_TEMP/base.json" "$RUNNER_TEMP/head.json" \
-              --diff --group-by func --sort change --format md > "$RUNNER_TEMP/table.md"
+              --diff --group-by module --sort change --format md > "$RUNNER_TEMP/table.md"
             uv run --with "$BENCHMEM" benchmem plot \
               "$RUNNER_TEMP/base.json" "$RUNNER_TEMP/head.json" \
               --view compare -o benchmark-plot.html
+            {
+              echo 'Δ% vs base, one table sorted by biggest change first'
+              echo '(`min` walltime and memray `peak`). Peak memory is'
+              echo 'deterministic — any delta there is real; walltime on GitHub'
+              echo 'runners is noisy, so only large time deltas are meaningful.'
+            } > "$RUNNER_TEMP/intro.md"
           else
             uv run --with "$BENCHMEM" benchmem compare \
               "$RUNNER_TEMP/head.json" --format md > "$RUNNER_TEMP/table.md"
             uv run --with "$BENCHMEM" benchmem plot \
               "$RUNNER_TEMP/head.json" --x n_cols -o benchmark-plot.html
+            echo 'Standalone run — no base revision to compare against.' \
+              > "$RUNNER_TEMP/intro.md"
           fi
           {
             echo '<!-- benchmarks-report -->'
             echo '## Benchmarks'
             echo
-            echo 'Δ% vs base, biggest change first per group (`min` walltime'
-            echo 'and memray `peak`). Peak memory is deterministic — any delta'
-            echo 'there is real; walltime on GitHub runners is noisy, so only'
-            echo 'large time deltas are meaningful. The interactive plot is'
-            echo 'attached as the `benchmark-plot` artifact.'
+            cat "$RUNNER_TEMP/intro.md"
+            echo 'The interactive plot is attached as the `benchmark-plot` artifact.'
             echo
             echo '<details><summary>Full table</summary>'
             echo
@@ -94,7 +98,11 @@ jobs:
           path: benchmark-plot.html
 
       - name: Post or update the sticky comment
-        if: github.event_name == 'pull_request'
+        # Commenting needs a writable token; fork PRs only get a read-only one,
+        # so they keep the step summary and artifact but skip the comment.
+        if: >-
+          ${{ github.event_name == 'pull_request' &&
+              github.event.pull_request.head.repo.full_name == github.repository }}
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}

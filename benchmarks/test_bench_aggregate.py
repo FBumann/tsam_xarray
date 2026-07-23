@@ -24,19 +24,18 @@ import xarray as xr
 
 from tsam_xarray import aggregate
 
-RNG = np.random.default_rng(42)
-
 
 def make_data(n_days: int, n_cols: int, n_slices: int) -> xr.DataArray:
+    rng = np.random.default_rng(42)
     n_t = n_days * 24
     time_idx = pd.date_range("2023-01-01", periods=n_t, freq="h")
     t = np.arange(n_t)
     daily = np.sin(2 * np.pi * t / 24)
     yearly = np.sin(2 * np.pi * t / 8760)
     base = (
-        daily[None, :] * RNG.uniform(0.5, 2, (n_cols, 1))
-        + yearly[None, :] * RNG.uniform(0.5, 2, (n_cols, 1))
-        + RNG.normal(0, 0.3, (n_cols, n_t))
+        daily[None, :] * rng.uniform(0.5, 2, (n_cols, 1))
+        + yearly[None, :] * rng.uniform(0.5, 2, (n_cols, 1))
+        + rng.normal(0, 0.3, (n_cols, n_t))
     )
     dims = ["variable", "time"]
     coords: dict[str, object] = {
@@ -45,7 +44,7 @@ def make_data(n_days: int, n_cols: int, n_slices: int) -> xr.DataArray:
     }
     data = base
     if n_slices > 1:
-        scale = RNG.uniform(0.8, 1.2, (n_slices, 1, 1))
+        scale = rng.uniform(0.8, 1.2, (n_slices, 1, 1))
         data = base[None, :, :] * scale
         dims = ["scenario", *dims]
         coords["scenario"] = [f"s{i}" for i in range(n_slices)]
@@ -153,7 +152,7 @@ def test_full_scale_slices(benchmark, n_slices):
     benchmark.pedantic(run_aggregate, args=(da, 12, CONFIGS["full"]), **BENCH_OPTS)
 
 
-@pytest.mark.parametrize("n_days", [730])
+@pytest.mark.parametrize("n_days", [365, 730])
 def test_full_scale_days(benchmark, n_days):
     da = make_data(n_days, n_cols=8, n_slices=1)
     benchmark.pedantic(run_aggregate, args=(da, 12, CONFIGS["full"]), **BENCH_OPTS)
