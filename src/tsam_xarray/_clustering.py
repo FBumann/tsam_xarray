@@ -656,7 +656,9 @@ def _apply_single(
     typical = _representatives_to_da(
         tsam_result.cluster_representatives, col_dims, dim_names
     )
-    reconstructed = _reconstructed_to_da(tsam_result.reconstructed, time_dim, col_dims)
+
+    def _make_reconstructed() -> xr.DataArray:
+        return _reconstructed_to_da(tsam_result.reconstructed, time_dim, col_dims)
 
     cw = _cluster_counts(tsam_result)
     cluster_ids = np.array(sorted(cw.keys()))
@@ -674,18 +676,19 @@ def _apply_single(
     if isinstance(df.columns, pd.MultiIndex):
         col_names = [str(n) for n in df.columns.names]
 
-    accuracy = AccuracyMetrics(
-        rmse=_metric_to_da(tsam_result.accuracy.rmse, col_dims, col_names),
-        mae=_metric_to_da(tsam_result.accuracy.mae, col_dims, col_names),
-        rmse_duration=_metric_to_da(
-            tsam_result.accuracy.rmse_duration, col_dims, col_names
-        ),
-        weighted_rmse=xr.DataArray(tsam_result.accuracy.weighted_rmse),
-        weighted_mae=xr.DataArray(tsam_result.accuracy.weighted_mae),
-        weighted_rmse_duration=xr.DataArray(
-            tsam_result.accuracy.weighted_rmse_duration
-        ),
-    )
+    def _make_accuracy() -> AccuracyMetrics:
+        return AccuracyMetrics(
+            rmse=_metric_to_da(tsam_result.accuracy.rmse, col_dims, col_names),
+            mae=_metric_to_da(tsam_result.accuracy.mae, col_dims, col_names),
+            rmse_duration=_metric_to_da(
+                tsam_result.accuracy.rmse_duration, col_dims, col_names
+            ),
+            weighted_rmse=xr.DataArray(tsam_result.accuracy.weighted_rmse),
+            weighted_mae=xr.DataArray(tsam_result.accuracy.weighted_mae),
+            weighted_rmse_duration=xr.DataArray(
+                tsam_result.accuracy.weighted_rmse_duration
+            ),
+        )
 
     seg_durations = _segment_durations_to_da(tsam_result.segment_durations, dim_names)
 
@@ -702,8 +705,8 @@ def _apply_single(
         cluster_assignments=assignments_da,
         cluster_counts=cluster_counts_da,
         segment_durations=seg_durations,
-        accuracy=accuracy,
-        reconstructed=reconstructed,
+        _accuracy_factory=_make_accuracy,
+        _reconstructed_factory=_make_reconstructed,
         original=da,
         clustering=clustering_info,
         is_transferred=True,
