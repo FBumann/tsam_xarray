@@ -23,9 +23,9 @@ tsam works on flat DataFrames. With multi-dimensional data, you end up writing b
 import tsam_xarray
 
 result = tsam_xarray.aggregate(
-    da,                                    # (time, variable, region, scenario)
+    da,  # (time, variable, region, scenario)
     time_dim="time",
-    cluster_dim=["variable", "region"],    # clustered together
+    cluster_dim=["variable", "region"],  # clustered together
     n_clusters=4,
 )
 # scenario is sliced independently — each gets its own clustering
@@ -34,9 +34,9 @@ result = tsam_xarray.aggregate(
 Everything comes back as labeled xarray objects:
 
 ```python
-result.cluster_representatives   # (scenario, cluster, timestep, variable, region)
-result.reconstructed             # same shape as input
-result.cluster_assignments       # (scenario, period)
+result.cluster_representatives  # (scenario, cluster, timestep, variable, region)
+result.reconstructed  # same shape as input
+result.cluster_assignments  # (scenario, period)
 ```
 
 Accuracy metrics preserve all dimensions — see exactly where the approximation is good or bad:
@@ -44,8 +44,8 @@ Accuracy metrics preserve all dimensions — see exactly where the approximation
 ![Per-column RMSE across all dimensions](docs/assets/multi-dim-metrics.png)
 
 ```python
-result.accuracy.rmse             # DataArray (scenario, variable, region)
-result.accuracy.weighted_rmse    # DataArray (scenario,) — per-slice summary
+result.accuracy.rmse  # DataArray (scenario, variable, region)
+result.accuracy.weighted_rmse  # DataArray (scenario,) — per-slice summary
 ```
 
 ## Save, load, reuse
@@ -56,9 +56,9 @@ result.clustering.to_json("clustering.json")
 
 # Load and inspect — no original data needed
 clustering = tsam_xarray.load_clustering("clustering.json")
-clustering.n_clusters              # 4
-clustering.cluster_assignments     # DataArray (scenario, period)
-clustering.cluster_occurrences     # DataArray (scenario, cluster)
+clustering.n_clusters  # 4
+clustering.cluster_assignments  # DataArray (scenario, period)
+clustering.cluster_occurrences  # DataArray (scenario, cluster)
 
 # Apply to new data or disaggregate optimization results
 new_result = clustering.apply(new_da)
@@ -76,8 +76,8 @@ grid = tsam_xarray.grid_search(
     cluster_dim=["variable", "region"],
     timesteps=np.geomspace(2, 48, num=12, dtype=int),  # sparse search
 )
-grid.summary_matrix["rmse"]        # heatmap-ready (n_clusters, n_segments)
-grid.accuracy["weighted_rmse"]     # per-slice weighted RMSE for every config
+grid.summary_matrix["rmse"]  # heatmap-ready (n_clusters, n_segments)
+grid.accuracy["weighted_rmse"]  # per-slice weighted RMSE for every config
 ```
 
 ## Installation

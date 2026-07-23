@@ -1,0 +1,120 @@
+name: Benchmarks
+
+# Informational performance report on every PR: run the pytest-benchmem suite
+# on the PR head and on the base branch in the same job (same runner, same
+# pinned benchmem version), then keep one sticky comment with the delta table
+# and upload an interactive plot artifact. Never blocks a merge — GitHub
+# runners are noisy, so treat the walltime deltas as a hint, not a gate.
+# Fork PRs run too (read-only token) and get the step summary and artifact;
+# only the sticky comment needs a writable token and is skipped for them.
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BENCHMEM: pytest-benchmem[plot]==0.4.10
+  BENCH_ARGS: >-
+    -o addopts= -p no:xdist -q --benchmark-only --benchmark-memory
+    --benchmark-disable-gc
+
+jobs:
+  report:
+    name: Head vs base
+    runs-on: ubuntu-24.04
+    continue-on-error: true # informational, never blocks a merge
+    permissions:
+      contents: read
+      pull-requests: write # no-op on fork PRs (read-only token); comment step is guarded
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # hatch-vcs + checkout of the base revision
+          persist-credentials: false # benchmarks execute PR code; keep the token out of .git/config
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Benchmark head
+        run: >
+          uv run --with "$BENCHMEM" pytest benchmarks/ $BENCH_ARGS
+          --benchmark-json "$RUNNER_TEMP/head.json"
+
+      - name: Benchmark base (${{ github.event.pull_request.base.ref }})
+        if: github.event_name == 'pull_request'
+        # Base src with the head's benchmark suite overlaid, so test IDs match
+        # and suite edits in the PR still compare against the same cases.
+        run: |
+          git checkout --detach ${{ github.event.pull_request.base.sha }}
+          git checkout ${{ github.sha }} -- benchmarks/
+          uv run --with "$BENCHMEM" pytest benchmarks/ $BENCH_ARGS \
+            --benchmark-json "$RUNNER_TEMP/base.json"
+
+      - name: Render report and plot
+        run: |
+          if [ -f "$RUNNER_TEMP/base.json" ]; then
+            uv run --with "$BENCHMEM" benchmem compare \
+              "$RUNNER_TEMP/base.json" "$RUNNER_TEMP/head.json" \
+              --diff --group-by module --sort change --format md > "$RUNNER_TEMP/table.md"
+            uv run --with "$BENCHMEM" benchmem plot \
+              "$RUNNER_TEMP/base.json" "$RUNNER_TEMP/head.json" \
+              --view compare -o benchmark-plot.html
+            {
+              echo 'Δ% vs base, one table sorted by biggest change first'
+              echo '(`min` walltime and memray `peak`). Peak memory is'
+              echo 'deterministic — any delta there is real; walltime on GitHub'
+              echo 'runners is noisy, so only large time deltas are meaningful.'
+            } > "$RUNNER_TEMP/intro.md"
+          else
+            uv run --with "$BENCHMEM" benchmem compare \
+              "$RUNNER_TEMP/head.json" --format md > "$RUNNER_TEMP/table.md"
+            uv run --with "$BENCHMEM" benchmem plot \
+              "$RUNNER_TEMP/head.json" --x n_cols -o benchmark-plot.html
+            echo 'Standalone run — no base revision to compare against.' \
+              > "$RUNNER_TEMP/intro.md"
+          fi
+          {
+            echo '<!-- benchmarks-report -->'
+            echo '## Benchmarks'
+            echo
+            cat "$RUNNER_TEMP/intro.md"
+            echo 'The interactive plot is attached as the `benchmark-plot` artifact.'
+            echo
+            echo '<details><summary>Full table</summary>'
+            echo
+            cat "$RUNNER_TEMP/table.md"
+            echo
+            echo '</details>'
+          } > "$RUNNER_TEMP/comment.md"
+          cat "$RUNNER_TEMP/comment.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-plot
+          path: benchmark-plot.html
+
+      - name: Post or update the sticky comment
+        # Commenting needs a writable token; fork PRs only get a read-only one,
+        # so they keep the step summary and artifact but skip the comment.
+        if: >-
+          ${{ github.event_name == 'pull_request' &&
+              github.event.pull_request.head.repo.full_name == github.repository }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          marker='<!-- benchmarks-report -->'
+          existing=$(gh api --paginate "repos/${{ github.repository }}/issues/$PR/comments" \
+            --jq ".[] | select(.body | startswith(\"$marker\")) | .id" | head -n1)
+          if [ -n "$existing" ]; then
+            gh api -X PATCH "repos/${{ github.repository }}/issues/comments/$existing" \
+              -F body=@"$RUNNER_TEMP/comment.md" > /dev/null
+          else
+            gh pr comment "$PR" --body-file "$RUNNER_TEMP/comment.md"
+          fi
