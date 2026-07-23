@@ -20,10 +20,10 @@ result = tsam_xarray.aggregate(
     n_clusters=8,
 )
 
-result.cluster_representatives   # (cluster, timestep, variable, region)
-result.cluster_counts   # (cluster,)
-result.accuracy.rmse     # (variable, region)
-result.reconstructed     # same shape as input
+result.cluster_representatives  # (cluster, timestep, variable, region)
+result.cluster_counts  # (cluster,)
+result.accuracy.rmse  # (variable, region)
+result.reconstructed  # same shape as input
 ```
 
 All [tsam.aggregate()](https://tsam.readthedocs.io/) keyword arguments pass through — clustering methods, segmentation, extreme periods, etc.
