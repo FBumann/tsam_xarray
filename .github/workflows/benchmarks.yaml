@@ -19,7 +19,9 @@ concurrency:
 
 env:
   BENCHMEM: pytest-benchmem[plot]==0.4.10
-  BENCH_ARGS: -o addopts= -p no:xdist -q --benchmark-only --benchmark-memory
+  BENCH_ARGS: >-
+    -o addopts= -p no:xdist -q --benchmark-only --benchmark-memory
+    --benchmark-disable-gc
 
 jobs:
   report:

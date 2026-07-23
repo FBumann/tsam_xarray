@@ -95,8 +95,9 @@ def run_aggregate(da: xr.DataArray, config: dict[str, object]) -> None:
     aggregate(da, time_dim="time", cluster_dim="variable", n_clusters=12, **config)
 
 
-MICRO_OPTS = dict(rounds=10, iterations=1, warmup_rounds=1)
-E2E_OPTS = dict(rounds=3, iterations=1, warmup_rounds=0)
+MICRO_OPTS = dict(rounds=10, iterations=10, warmup_rounds=1)
+CONFIG_OPTS = dict(rounds=5, iterations=1, warmup_rounds=1)
+E2E_OPTS = dict(rounds=3, iterations=1, warmup_rounds=1)
 
 
 # --- wrapper micro-benchmarks -------------------------------------------------
@@ -152,14 +153,14 @@ def test_wrapper_concat_results(benchmark, slice_results):
 def test_config_representation(benchmark, representation):
     da = make_data(90, n_cols=8, n_slices=1)
     config = {"cluster": cluster_config(REPRESENTATIONS[representation])}
-    benchmark.pedantic(run_aggregate, args=(da, config), **E2E_OPTS)
+    benchmark.pedantic(run_aggregate, args=(da, config), **CONFIG_OPTS)
 
 
 @pytest.mark.parametrize("extremes", ["replace", "append"])
 def test_config_extremes(benchmark, extremes):
     da = make_data(90, n_cols=8, n_slices=1)
     config = {"cluster": cluster_config(), "extremes": extremes_config(extremes)}
-    benchmark.pedantic(run_aggregate, args=(da, config), **E2E_OPTS)
+    benchmark.pedantic(run_aggregate, args=(da, config), **CONFIG_OPTS)
 
 
 # --- end-to-end sentinels -----------------------------------------------------
