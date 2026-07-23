@@ -60,7 +60,7 @@ jobs:
           if [ -f "$RUNNER_TEMP/base.json" ]; then
             uv run --with "$BENCHMEM" benchmem compare \
               "$RUNNER_TEMP/base.json" "$RUNNER_TEMP/head.json" \
-              --diff --format md > "$RUNNER_TEMP/table.md"
+              --diff --group-by func --sort change --format md > "$RUNNER_TEMP/table.md"
             uv run --with "$BENCHMEM" benchmem plot \
               "$RUNNER_TEMP/base.json" "$RUNNER_TEMP/head.json" \
               --view compare -o benchmark-plot.html
@@ -74,9 +74,11 @@ jobs:
             echo '<!-- benchmarks-report -->'
             echo '## Benchmarks'
             echo
-            echo 'Δ% vs base (`min` walltime and memray peak); GitHub runners'
-            echo 'are noisy, so small walltime deltas are not meaningful. The'
-            echo 'interactive plot is attached as the `benchmark-plot` artifact.'
+            echo 'Δ% vs base, biggest change first per group (`min` walltime'
+            echo 'and memray `peak`). Peak memory is deterministic — any delta'
+            echo 'there is real; walltime on GitHub runners is noisy, so only'
+            echo 'large time deltas are meaningful. The interactive plot is'
+            echo 'attached as the `benchmark-plot` artifact.'
             echo
             echo '<details><summary>Full table</summary>'
             echo
