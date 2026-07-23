@@ -24,6 +24,17 @@ uv run --with "pytest-benchmem[plot]" pytest benchmarks/ \
 (`-o addopts="" -p no:xdist` because the project's xdist config auto-disables
 benchmarks.)
 
+## Large tier
+
+Production-sized cases (`test_large_*`, several seconds and hundreds of MiB
+peak each) are skipped by default — in CI too. Run them locally before
+dependency bumps or performance work:
+
+```bash
+uv run --with "pytest-benchmem[plot]" pytest benchmarks/ --large -k large \
+    -o addopts="" -p no:xdist --benchmark-only --benchmark-memory
+```
+
 ## Baselines
 
 Save a named baseline (stored in `.benchmarks/`, gitignored — machine-specific):

@@ -17,6 +17,10 @@ Three layers, cheapest statistics where the repo's own code lives:
   integration surprises (tsam version bumps, config plumbing), the
   representation-by-width interaction, and the multi-``cluster_dim``
   MultiIndex path.
+- ``test_large_*`` — production-sized cases (hundreds of MiB peak) that
+  guard the memory-amplification regime. Opt-in via ``--large`` (skipped
+  otherwise, including in CI) — run locally before dependency bumps or
+  performance work.
 - ``test_user_*`` — post-aggregation operations users run on results:
   reusing a stored clustering on new data (``clustering.apply``) and
   expanding cluster-level data back to the full time axis
@@ -226,3 +230,20 @@ def test_user_disaggregate(benchmark, wide_result):
         args=(result.cluster_representatives,),
         **CONFIG_OPTS,
     )
+
+
+# --- large tier (production-sized, opt-in via --large) -------------------------
+
+LARGE_OPTS = dict(rounds=2, iterations=1, warmup_rounds=0)
+
+
+@pytest.mark.large
+def test_large_wide(benchmark):
+    da = make_data(730, n_cols=256, n_slices=1)
+    benchmark.pedantic(run_aggregate, args=(da, FULL_CONFIG), **LARGE_OPTS)
+
+
+@pytest.mark.large
+def test_large_scenarios(benchmark):
+    da = make_data(365, n_cols=64, n_slices=8)
+    benchmark.pedantic(run_aggregate, args=(da, FULL_CONFIG), **LARGE_OPTS)
