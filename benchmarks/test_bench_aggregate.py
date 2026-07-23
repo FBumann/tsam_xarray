@@ -1,17 +1,24 @@
-"""Scaling benchmarks for tsam_xarray.aggregate() with production configs.
+"""Benchmarks for tsam_xarray: wrapper micro-benchmarks + end-to-end sentinels.
 
 Run with:
-    uv run --with pytest-benchmem pytest benchmarks/ -o addopts="" -p no:xdist \
+    uv run --with pytest-benchmem pytest benchmarks/ -o addopts= -p no:xdist \
         --benchmark-only --benchmark-memory
 
-Focus configs:
-- hierarchical clustering (tsam default)
-- Distribution(scope="global") representation
-- include_period_sums=False (tsam default)
-- ExtremeConfig(method="replace")
+Three layers, cheapest statistics where the repo's own code lives:
 
-``config_variants`` isolates the cost of each option at a fixed size;
-the scale tests grow columns/slices/days under the full production config.
+- ``test_wrapper_*`` — micro-benchmarks of the wrapper's conversion stages
+  (DataFrame in, result out, slice concat). Profiling showed ~90% of an
+  end-to-end run is inside tsam, which this repo cannot regress — its PRs
+  can only regress these stages, so they get many rounds and wide inputs.
+- ``test_config_*`` — cost ratios of tsam config options at a reduced size
+  (90 days); every measured config effect is multiplicative, so ratios at
+  90 days match 365 days at a quarter of the cost.
+- ``test_e2e_*`` — few full-pipeline sentinels at production size for
+  integration surprises (tsam version bumps, config plumbing) and the
+  representation-by-width interaction.
+
+Cases are a deterministic grid (data seeded per call) because benchmem
+matches runs by test ID — IDs and data must be stable across runs.
 """
 
 from __future__ import annotations
@@ -23,6 +30,13 @@ import tsam
 import xarray as xr
 
 from tsam_xarray import aggregate
+from tsam_xarray._core import (
+    _aggregate_single,
+    _concat_results,
+    _result_from_tsam,
+    _to_dataframe,
+)
+from tsam_xarray._dim_names import DimNames
 
 
 def make_data(n_days: int, n_cols: int, n_slices: int) -> xr.DataArray:
@@ -39,7 +53,7 @@ def make_data(n_days: int, n_cols: int, n_slices: int) -> xr.DataArray:
     )
     dims = ["variable", "time"]
     coords: dict[str, object] = {
-        "variable": [f"var{i}" for i in range(n_cols)],
+        "variable": [f"var{i:03d}" for i in range(n_cols)],
         "time": time_idx,
     }
     data = base
@@ -59,32 +73,14 @@ def cluster_config(representation: object | None = None) -> tsam.ClusterConfig:
     )
 
 
-def extremes_config() -> tsam.ExtremeConfig:
-    return tsam.ExtremeConfig(method="replace", max_value=["var0"], min_value=["var1"])
+def extremes_config(method: str = "replace") -> tsam.ExtremeConfig:
+    return tsam.ExtremeConfig(method=method, max_value=["var000"], min_value=["var001"])
 
 
-CONFIGS: dict[str, dict[str, object]] = {
-    "default": {},
-    "dist_global": {"cluster": cluster_config(tsam.Distribution(scope="global"))},
-    "extremes_replace": {"cluster": cluster_config(), "extremes": extremes_config()},
-    "full": {
-        "cluster": cluster_config(tsam.Distribution(scope="global")),
-        "extremes": extremes_config(),
-    },
+FULL_CONFIG: dict[str, object] = {
+    "cluster": cluster_config(tsam.Distribution(scope="global")),
+    "extremes": extremes_config(),
 }
-
-
-def run_aggregate(da: xr.DataArray, n_clusters: int, config: dict[str, object]) -> None:
-    aggregate(
-        da,
-        time_dim="time",
-        cluster_dim="variable",
-        n_clusters=n_clusters,
-        **config,
-    )
-
-
-BENCH_OPTS = dict(rounds=3, iterations=1, warmup_rounds=0)
 
 REPRESENTATIONS: dict[str, object | None] = {
     "medoid": None,
@@ -94,65 +90,98 @@ REPRESENTATIONS: dict[str, object | None] = {
     "dist_global_minmax": tsam.Distribution(scope="global", preserve_minmax=True),
 }
 
-EXTREMES: dict[str, tsam.ExtremeConfig | None] = {
-    "none": None,
-    "replace": extremes_config(),
-    "append": tsam.ExtremeConfig(
-        method="append", max_value=["var0"], min_value=["var1"]
-    ),
-}
+
+def run_aggregate(da: xr.DataArray, config: dict[str, object]) -> None:
+    aggregate(da, time_dim="time", cluster_dim="variable", n_clusters=12, **config)
 
 
-@pytest.mark.parametrize("config", list(CONFIGS))
-def test_config_variants(benchmark, config):
-    da = make_data(365, n_cols=8, n_slices=1)
-    benchmark.pedantic(run_aggregate, args=(da, 12, CONFIGS[config]), **BENCH_OPTS)
+MICRO_OPTS = dict(rounds=10, iterations=1, warmup_rounds=1)
+E2E_OPTS = dict(rounds=3, iterations=1, warmup_rounds=0)
 
 
-@pytest.mark.parametrize("extremes", list(EXTREMES))
+# --- wrapper micro-benchmarks -------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def wide_tsam_result():
+    da = make_data(365, 128, 1)
+    df = _to_dataframe(da, "time", ["variable"])
+    return tsam.aggregate(df, 12), da, df
+
+
+@pytest.fixture(scope="module")
+def slice_results():
+    da = make_data(365, 8, 8)
+    scenarios = da.coords["scenario"].values
+    results = [
+        _aggregate_single(
+            da.sel(scenario=s), 12, "time", ["variable"], None, None, {}, DimNames()
+        )
+        for s in scenarios
+    ]
+    return results, {"scenario": scenarios}, [(s,) for s in scenarios]
+
+
+def test_wrapper_to_dataframe(benchmark):
+    da = make_data(365, 128, 1)
+    benchmark.pedantic(_to_dataframe, args=(da, "time", ["variable"]), **MICRO_OPTS)
+
+
+def test_wrapper_result_conversion(benchmark, wide_tsam_result):
+    res, da, df = wide_tsam_result
+    benchmark.pedantic(
+        _result_from_tsam,
+        args=(res, da, df, "time", ["variable"], DimNames()),
+        **MICRO_OPTS,
+    )
+
+
+def test_wrapper_concat_results(benchmark, slice_results):
+    results, slice_coords, slice_keys = slice_results
+    benchmark.pedantic(
+        _concat_results,
+        args=(results, ["scenario"], slice_coords, slice_keys),
+        **MICRO_OPTS,
+    )
+
+
+# --- config cost ratios (reduced size) ----------------------------------------
+
+
 @pytest.mark.parametrize("representation", list(REPRESENTATIONS))
-def test_config_grid(benchmark, representation, extremes):
-    da = make_data(365, n_cols=8, n_slices=1)
-    config: dict[str, object] = {
-        "cluster": cluster_config(REPRESENTATIONS[representation])
-    }
-    if EXTREMES[extremes] is not None:
-        config["extremes"] = EXTREMES[extremes]
-    benchmark.pedantic(run_aggregate, args=(da, 12, config), **BENCH_OPTS)
-
-
-@pytest.mark.parametrize("n_cols", [16, 64, 128])
-@pytest.mark.parametrize("representation", ["medoid", "dist_global"])
-def test_representation_x_columns(benchmark, representation, n_cols):
-    da = make_data(365, n_cols=n_cols, n_slices=1)
+def test_config_representation(benchmark, representation):
+    da = make_data(90, n_cols=8, n_slices=1)
     config = {"cluster": cluster_config(REPRESENTATIONS[representation])}
-    benchmark.pedantic(run_aggregate, args=(da, 12, config), **BENCH_OPTS)
+    benchmark.pedantic(run_aggregate, args=(da, config), **E2E_OPTS)
 
 
-@pytest.mark.parametrize("preserve", ["on", "off"])
-@pytest.mark.parametrize("representation", ["medoid", "dist_global"])
-def test_preserve_column_means(benchmark, representation, preserve):
+@pytest.mark.parametrize("extremes", ["replace", "append"])
+def test_config_extremes(benchmark, extremes):
+    da = make_data(90, n_cols=8, n_slices=1)
+    config = {"cluster": cluster_config(), "extremes": extremes_config(extremes)}
+    benchmark.pedantic(run_aggregate, args=(da, config), **E2E_OPTS)
+
+
+# --- end-to-end sentinels -----------------------------------------------------
+
+
+def test_e2e_default(benchmark):
     da = make_data(365, n_cols=8, n_slices=1)
-    config: dict[str, object] = {
-        "cluster": cluster_config(REPRESENTATIONS[representation]),
-        "preserve_column_means": preserve == "on",
-    }
-    benchmark.pedantic(run_aggregate, args=(da, 12, config), **BENCH_OPTS)
+    benchmark.pedantic(run_aggregate, args=(da, {}), **E2E_OPTS)
 
 
-@pytest.mark.parametrize("n_cols", [16, 64, 128])
-def test_full_scale_columns(benchmark, n_cols):
-    da = make_data(365, n_cols=n_cols, n_slices=1)
-    benchmark.pedantic(run_aggregate, args=(da, 12, CONFIGS["full"]), **BENCH_OPTS)
+def test_e2e_full(benchmark):
+    da = make_data(365, n_cols=8, n_slices=1)
+    benchmark.pedantic(run_aggregate, args=(da, FULL_CONFIG), **E2E_OPTS)
 
 
-@pytest.mark.parametrize("n_slices", [4, 8])
-def test_full_scale_slices(benchmark, n_slices):
-    da = make_data(365, n_cols=8, n_slices=n_slices)
-    benchmark.pedantic(run_aggregate, args=(da, 12, CONFIGS["full"]), **BENCH_OPTS)
+@pytest.mark.parametrize("representation", ["medoid", "dist_global"])
+def test_e2e_wide(benchmark, representation):
+    da = make_data(365, n_cols=128, n_slices=1)
+    config = {"cluster": cluster_config(REPRESENTATIONS[representation])}
+    benchmark.pedantic(run_aggregate, args=(da, config), **E2E_OPTS)
 
 
-@pytest.mark.parametrize("n_days", [365, 730])
-def test_full_scale_days(benchmark, n_days):
-    da = make_data(n_days, n_cols=8, n_slices=1)
-    benchmark.pedantic(run_aggregate, args=(da, 12, CONFIGS["full"]), **BENCH_OPTS)
+def test_e2e_slices(benchmark):
+    da = make_data(365, n_cols=8, n_slices=8)
+    benchmark.pedantic(run_aggregate, args=(da, FULL_CONFIG), **E2E_OPTS)

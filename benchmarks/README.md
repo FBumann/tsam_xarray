@@ -6,11 +6,13 @@ plus memray peak-memory columns). Not part of the regular test suite — CI runs
 it via `.github/workflows/benchmarks.yaml`, which posts a head-vs-base delta
 table on every PR and uploads an interactive plot artifact.
 
-The suite focuses on the production config — hierarchical clustering,
-`Distribution` representations, `include_period_sums=False`, extremes — and
-scales columns, slices, and days under it. Cases are a deterministic grid, not
-random: `benchmem compare` matches runs by test ID, so IDs must be stable
-across runs for baselines to work.
+Three layers (see the module docstring in `test_bench_aggregate.py`):
+wrapper-stage micro-benchmarks with many rounds (the only code this repo's
+PRs can regress — ~90% of an end-to-end run is inside tsam), config cost
+ratios at reduced size, and a few full-pipeline sentinels at production
+size. Cases are a deterministic grid, not random: `benchmem compare`
+matches runs by test ID, so IDs must be stable across runs for baselines
+to work.
 
 ## Run locally
 
