@@ -14,8 +14,15 @@ Three layers, cheapest statistics where the repo's own code lives:
   (90 days); every measured config effect is multiplicative, so ratios at
   90 days match 365 days at a quarter of the cost.
 - ``test_e2e_*`` — few full-pipeline sentinels at production size for
-  integration surprises (tsam version bumps, config plumbing) and the
-  representation-by-width interaction.
+  integration surprises (tsam version bumps, config plumbing), the
+  representation-by-width interaction, and the multi-``cluster_dim``
+  MultiIndex path.
+- ``test_user_*`` — post-aggregation operations users run on results:
+  reusing a stored clustering on new data (``clustering.apply``) and
+  expanding cluster-level data back to the full time axis
+  (``disaggregate``). Accuracy metrics and ``reconstructed`` need no
+  extra cases — tsam computes them eagerly inside ``aggregate()``, so
+  every e2e case and the result-conversion micro already include them.
 
 Cases are a deterministic grid (data seeded per call) because benchmem
 matches runs by test ID — IDs and data must be stable across runs.
@@ -91,8 +98,12 @@ REPRESENTATIONS: dict[str, object | None] = {
 }
 
 
-def run_aggregate(da: xr.DataArray, config: dict[str, object]) -> None:
-    aggregate(da, time_dim="time", cluster_dim="variable", n_clusters=12, **config)
+def run_aggregate(
+    da: xr.DataArray,
+    config: dict[str, object],
+    cluster_dim: list[str] | str = "variable",
+) -> None:
+    aggregate(da, time_dim="time", cluster_dim=cluster_dim, n_clusters=12, **config)
 
 
 MICRO_OPTS = dict(rounds=10, iterations=10, warmup_rounds=1)
@@ -186,3 +197,32 @@ def test_e2e_wide(benchmark, representation):
 def test_e2e_slices(benchmark):
     da = make_data(365, n_cols=8, n_slices=8)
     benchmark.pedantic(run_aggregate, args=(da, FULL_CONFIG), **E2E_OPTS)
+
+
+def test_e2e_multidim(benchmark):
+    da = make_data(365, n_cols=8, n_slices=4).rename(scenario="region")
+    benchmark.pedantic(run_aggregate, args=(da, {}, ["variable", "region"]), **E2E_OPTS)
+
+
+# --- user post-aggregation operations -----------------------------------------
+
+
+@pytest.fixture(scope="module")
+def wide_result():
+    da = make_data(365, 128, 1)
+    result = aggregate(da, time_dim="time", cluster_dim="variable", n_clusters=12)
+    return result, da
+
+
+def test_user_apply(benchmark, wide_result):
+    result, da = wide_result
+    benchmark.pedantic(result.clustering.apply, args=(da * 1.1,), **CONFIG_OPTS)
+
+
+def test_user_disaggregate(benchmark, wide_result):
+    result, _da = wide_result
+    benchmark.pedantic(
+        result.clustering.disaggregate,
+        args=(result.cluster_representatives,),
+        **CONFIG_OPTS,
+    )
