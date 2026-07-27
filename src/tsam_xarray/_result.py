@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from functools import cached_property
 from typing import TYPE_CHECKING
 
 import pandas as pd
 import xarray as xr
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from tsam_xarray._clustering import ClusteringResult
     from tsam_xarray._dim_names import DimNames
 
@@ -75,8 +78,12 @@ class AggregationResult:
             ``None``. Dims: ``(cluster, timestep,
             *slice_dims)``.
         accuracy: Per-column and weighted accuracy metrics.
+            Computed on first access; on a tsam that defers
+            metric computation (v4), never reading it skips
+            the computation entirely.
         reconstructed: Reconstructed time series
             (same shape and dim order as ``original``).
+            Computed on first access, like ``accuracy``.
         original: The input data.
         clustering: Reusable clustering metadata.
             See `ClusteringResult`.
@@ -88,23 +95,43 @@ class AggregationResult:
     cluster_assignments: xr.DataArray
     cluster_counts: xr.DataArray
     segment_durations: xr.DataArray | None
-    accuracy: AccuracyMetrics
-    reconstructed: xr.DataArray
     original: xr.DataArray
     clustering: ClusteringResult
     is_transferred: bool = False
+    _accuracy_factory: Callable[[], AccuracyMetrics] = field(
+        kw_only=True, repr=False, compare=False
+    )
+    _reconstructed_factory: Callable[[], xr.DataArray] = field(
+        kw_only=True, repr=False, compare=False
+    )
+
+    @cached_property
+    def accuracy(self) -> AccuracyMetrics:
+        """Per-column and weighted accuracy metrics, computed on first access."""
+        return self._accuracy_factory()
+
+    @cached_property
+    def reconstructed(self) -> xr.DataArray:
+        """Reconstructed series on the original time axis, computed on first access."""
+        return self._reconstructed_factory()
 
     def __repr__(self) -> str:
         c = self.clustering
         slices = f", slice_dims={c.slice_dims}" if c.slice_dims else ""
         seg = f", n_segments={self.n_segments}" if self.n_segments else ""
+        # cached_property stores into __dict__; checking it avoids forcing
+        # the computation just to print the result
+        if "accuracy" in self.__dict__:
+            acc = f"weighted_rmse={float(self.accuracy.weighted_rmse.mean()):.4f}"
+        else:
+            acc = "accuracy=<not computed>"
         return (
             f"AggregationResult("
             f"n_clusters={self.n_clusters}, "
             f"n_periods={c.n_original_periods}, "
             f"cluster_dim={c.cluster_dim}"
             f"{slices}{seg}, "
-            f"weighted_rmse={float(self.accuracy.weighted_rmse.mean()):.4f})"
+            f"{acc})"
         )
 
     @property
