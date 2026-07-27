@@ -421,12 +421,9 @@ class ClusteringResult:
             Data with ``cluster`` and ``timestep`` replaced by
             the original ``time`` dimension.
         """
-        slice_dims = self.slice_dims
-        if not slice_dims:
-            return _disaggregate_single(self.clusterings[()], data, self.dim_names)
-
         import itertools
 
+        slice_dims = self.slice_dims
         slice_coords = {d: data.coords[d].values for d in slice_dims}
         keys = list(itertools.product(*(slice_coords[d] for d in slice_dims)))
         crs = [_lookup_clustering(self.clusterings, key) for key in keys]
@@ -435,6 +432,9 @@ class ClusteringResult:
             return _disaggregate_gather(
                 crs, data, self.dim_names, slice_dims, slice_coords
             )
+
+        if not slice_dims:
+            return _disaggregate_single(self.clusterings[()], data, self.dim_names)
 
         results = []
         for key, cr in zip(keys, crs, strict=True):
@@ -717,9 +717,10 @@ def _is_gatherable(
 ) -> bool:
     """Whether all slices can be disaggregated by one vectorized gather.
 
-    The gather produces a single rectangular array with one shared time
-    axis, so it needs unsegmented clusterings of identical shape whose time
-    indices agree.
+    The gather produces a single rectangular array with one shared time axis,
+    so every slice must agree on period count, period length and time index.
+    Segmented clusterings additionally need a segment grid that is rectangular
+    and covers each period exactly once.
 
     Args:
         crs: Per-slice clusterings, in the order the slices appear
@@ -728,20 +729,46 @@ def _is_gatherable(
         slice_dims: Dimension(s) aggregated independently.
 
     Returns:
-        ``True`` if one gather covers every slice, ``False`` to fall
-        back to the per-slice tsam path.
+        ``True`` if one vectorized pass covers every slice, ``False`` to
+        fall back to the per-slice tsam path.
     """
     if any(d not in data.dims for d in slice_dims):
         return False
     first = crs[0]
-    if first.segment_durations is not None:
-        return False
+    segmented = first.segment_durations is not None
     return all(
-        cr.segment_durations is None
+        (cr.segment_durations is not None) == segmented
         and cr.n_timesteps_per_period == first.n_timesteps_per_period
         and len(cr.cluster_assignments) == len(first.cluster_assignments)
         and _same_time_index(cr.time_index, first.time_index)
-        for cr in crs[1:]
+        and (not segmented or _has_regular_segments(cr))
+        for cr in crs
+    )
+
+
+def _has_regular_segments(cr: tsam.ClusteringResult) -> bool:
+    """Whether every cluster has the same segment count and tiles its period.
+
+    Ragged segment counts break the rectangular scatter. Zero-length segments
+    would make two segments share a start timestep, where the scatter's
+    last-write-wins would have to match the pandas loop's; rather than rely on
+    that, such clusterings go the pandas way.
+
+    Args:
+        cr: The clustering whose segment grid is checked.
+
+    Returns:
+        ``True`` if the scatter can express this clustering's segments.
+    """
+    durations = cr.segment_durations
+    if durations is None or not durations:
+        return False
+    n_segments = len(durations[0])
+    return all(
+        len(d) == n_segments
+        and all(step > 0 for step in d)
+        and sum(d) == cr.n_timesteps_per_period
+        for d in durations
     )
 
 
@@ -763,7 +790,7 @@ def _same_time_index(a: pd.Index | None, b: pd.Index | None) -> bool:
 def _validate_gather_input(
     cr: tsam.ClusteringResult,
     clusters: np.ndarray,
-    n_timesteps: int,
+    n_steps: int,
 ) -> None:
     """Mirror tsam's disaggregate input checks for the vectorized path."""
     expected = set(cr.cluster_assignments)
@@ -781,12 +808,50 @@ def _validate_gather_input(
         )
         raise ValueError(msg)
 
-    if n_timesteps != cr.n_timesteps_per_period:
-        msg = (
-            f"data has {n_timesteps} timesteps per cluster, "
-            f"expected {cr.n_timesteps_per_period}"
-        )
+    segmented = cr.segment_durations is not None
+    kind = "segments" if segmented else "timesteps"
+    n_expected = cr.n_segments if segmented else cr.n_timesteps_per_period
+    if n_steps != n_expected:
+        msg = f"data has {n_steps} {kind} per cluster, expected {n_expected}"
         raise ValueError(msg)
+
+
+def _segment_starts(
+    cr: tsam.ClusteringResult,
+    cluster_ranks: np.ndarray,
+) -> np.ndarray:
+    """First timestep of each segment, per cluster, in payload cluster order.
+
+    ``segment_durations`` is keyed by sorted cluster ID while the payload's
+    cluster axis may run in any order, so it is looked up by label rank —
+    the same mapping tsam's ``_expand_segments_to_timesteps`` builds.
+    """
+    durations = np.asarray(cr.segment_durations, dtype=np.intp)[cluster_ranks]
+    starts: np.ndarray = np.zeros_like(durations)
+    np.cumsum(durations[:, :-1], axis=1, out=starts[:, 1:])
+    return starts
+
+
+def _expand_segments(
+    values: np.ndarray,
+    starts: np.ndarray,
+    n_timesteps: int,
+) -> np.ndarray:
+    """Scatter segment values onto a full timestep axis, NaN elsewhere.
+
+    ``values`` is ``(slice, cluster, segment, other)``; the result is
+    ``(slice, cluster, timestep, other)``. Only the first timestep of each
+    segment carries a value, matching tsam — callers ``ffill`` for a step
+    function. Always float64, as the NaN fill forces upcasting.
+    """
+    n_slices, n_clusters = values.shape[:2]
+    expanded = np.full(
+        (n_slices, n_clusters, n_timesteps, values.shape[3]), np.nan, dtype=np.float64
+    )
+    slice_idx = np.arange(n_slices)[:, None, None]
+    cluster_idx = np.arange(n_clusters)[None, :, None]
+    expanded[slice_idx, cluster_idx, starts] = values
+    return expanded
 
 
 def _disaggregate_gather(
@@ -796,47 +861,54 @@ def _disaggregate_gather(
     slice_dims: list[str],
     slice_coords: dict[str, Any],
 ) -> xr.DataArray:
-    """Disaggregate unsegmented clusterings with a single vectorized gather.
+    """Disaggregate every slice with one vectorized numpy pass.
 
-    Expanding an unsegmented clustering is a gather along the cluster axis:
-    every original period takes the values of its assigned representative.
-    tsam's ``disaggregate()`` expresses this as an
-    ``unstack``/``.loc``/``stack`` round-trip through pandas, which dominates
-    the runtime and is repeated once per slice. Doing it in numpy covers all
-    slices at once.
+    Expanding a clustering is a gather along the cluster axis: every original
+    period takes the values of its assigned representative. tsam's
+    ``disaggregate()`` expresses this as an ``unstack``/``.loc``/``stack``
+    round-trip through pandas, and segmented input first goes through a
+    per-cluster DataFrame loop; both dominate the runtime and both are
+    repeated once per slice. In numpy the segment expansion is a scatter and
+    the period expansion a take, covering all slices at once.
 
     Output dim order matches the per-slice path: ``(*slice_dims, time,
     *other_dims)``.
     """
     cluster_dim = dim_names.cluster
-    timestep_dim = dim_names.timestep
+    step_dim = dim_names.timestep
     other_dims = [
         str(d)
         for d in data.dims
-        if d not in (cluster_dim, timestep_dim) and d not in slice_dims
+        if d not in (cluster_dim, step_dim) and d not in slice_dims
     ]
-    ordered = data.transpose(cluster_dim, timestep_dim, *slice_dims, *other_dims)
+    ordered = data.transpose(cluster_dim, step_dim, *slice_dims, *other_dims)
 
     clusters = ordered.coords[cluster_dim].values
     n_clusters = len(clusters)
-    n_timesteps = ordered.sizes[timestep_dim]
+    n_steps = ordered.sizes[step_dim]
     slice_sizes = tuple(ordered.sizes[d] for d in slice_dims)
     other_sizes = ordered.shape[2 + len(slice_dims) :]
+    n_slices = int(np.prod(slice_sizes, dtype=int))
+    n_periods = len(crs[0].cluster_assignments)
+    n_timesteps = crs[0].n_timesteps_per_period
 
     positions = pd.Index(clusters)
-    index = np.empty((len(crs), len(crs[0].cluster_assignments)), dtype=np.intp)
+    cluster_ranks = np.argsort(np.argsort(clusters, kind="stable"), kind="stable")
+    index = np.empty((n_slices, n_periods), dtype=np.intp)
+    starts = np.empty((n_slices, n_clusters, n_steps), dtype=np.intp)
     for i, cr in enumerate(crs):
-        _validate_gather_input(cr, clusters, n_timesteps)
+        _validate_gather_input(cr, clusters, n_steps)
         index[i] = positions.get_indexer(np.asarray(cr.cluster_assignments))
+        if cr.segment_durations is not None:
+            starts[i] = _segment_starts(cr, cluster_ranks)
 
-    n_slices = int(np.prod(slice_sizes, dtype=int))
-    n_periods = index.shape[1]
+    # (cluster, step, slices, others) -> (slices, cluster, step, others)
+    values = ordered.values.reshape(n_clusters, n_steps, n_slices, -1)
+    values = values.transpose(2, 0, 1, 3)
+    if crs[0].segment_durations is not None:
+        values = _expand_segments(values, starts, n_timesteps)
 
-    # (cluster, timestep, slices, others) -> (cluster, slices, timestep, others)
-    values = ordered.values.reshape(n_clusters, n_timesteps, n_slices, -1)
-    values = values.transpose(0, 2, 1, 3)
-    gathered = values[index.T, np.arange(n_slices)[None, :]]
-    gathered = gathered.transpose(1, 0, 2, 3)
+    gathered = values[np.arange(n_slices)[:, None], index]
     gathered = gathered.reshape(*slice_sizes, n_periods * n_timesteps, *other_sizes)
 
     n_time = n_periods * n_timesteps
@@ -865,17 +937,17 @@ def _disaggregate_single(
     data: xr.DataArray,
     dim_names: DimNames,
 ) -> xr.DataArray:
-    """Disaggregate a single (non-sliced) DataArray using a ClusteringResult.
+    """Disaggregate one slice through tsam's ``cr.disaggregate()``.
 
-    Segmented clusterings go through tsam's ``cr.disaggregate()``, which
-    returns a DataFrame indexed by the original ``DatetimeIndex`` stored on
-    the clustering. Unsegmented ones take the vectorized gather instead.
+    The fallback for clusterings the vectorized gather declines; see
+    :func:`_is_gatherable`. Returns a DataFrame indexed by the original
+    ``DatetimeIndex`` stored on the clustering.
+
+    Segmented input needs a third index level to mark it as segment-level
+    data, but tsam drops that level before use and reads the durations off
+    the clustering itself, so it is filled with zeros rather than with
+    durations looked up by cluster label.
     """
-    if cr.segment_durations is None:
-        return _disaggregate_gather(
-            [cr], data, dim_names, slice_dims=[], slice_coords={}
-        )
-
     cluster_dim = dim_names.cluster
     timestep_dim = dim_names.timestep
     other_dims = [str(d) for d in data.dims if d not in (cluster_dim, timestep_dim)]
@@ -888,12 +960,19 @@ def _disaggregate_single(
 
     flat = ordered.values.reshape(n_clusters * n_timesteps, -1)
 
-    idx_tuples = [
-        (int(c), seg, int(dur))
-        for c in clusters
-        for seg, dur in enumerate(cr.segment_durations[int(c)])
-    ]
-    mi = pd.MultiIndex.from_tuples(idx_tuples, names=["cluster", "segment", "duration"])
+    if cr.segment_durations is not None:
+        mi = pd.MultiIndex.from_arrays(
+            [
+                np.repeat(clusters, n_timesteps),
+                np.tile(np.arange(n_timesteps), n_clusters),
+                np.zeros(n_clusters * n_timesteps, dtype=int),
+            ],
+            names=["cluster", "segment", "duration"],
+        )
+    else:
+        mi = pd.MultiIndex.from_product(
+            [clusters, range(n_timesteps)], names=["cluster", "timestep"]
+        )
 
     df = pd.DataFrame(flat, index=mi, columns=range(flat.shape[1]))
     expanded = cr.disaggregate(df)
