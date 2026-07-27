@@ -1668,6 +1668,101 @@ class TestClusteringDisaggregate:
         expected = result.disaggregate(result.cluster_representatives)
         xr.testing.assert_allclose(dis, expected)
 
+    def test_sliced_dim_order_is_slice_dims_first(self):
+        """Sliced disaggregate keeps slice dims leading, then time."""
+        da = _make_da(scenarios=["low", "high"])
+        result = tsam_xarray.aggregate(
+            da,
+            time_dim="time",
+            cluster_dim=["variable", "region"],
+            n_clusters=4,
+        )
+        dis = result.clustering.disaggregate(result.cluster_representatives)
+
+        assert dis.dims[:2] == ("scenario", "time")
+        assert dis.shape[:2] == (2, da.sizes["time"])
+
+    def test_cluster_coords_are_labels_not_positions(self):
+        """A reordered cluster axis is gathered by label, not by position."""
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da_flat, time_dim="time", cluster_dim="variable", n_clusters=4
+        )
+        reps = result.cluster_representatives
+        shuffled = reps.isel(cluster=[3, 1, 0, 2])
+
+        dis = result.clustering.disaggregate(shuffled)
+        expected = result.clustering.disaggregate(reps)
+        xr.testing.assert_identical(dis, expected)
+
+    def test_preserves_integer_dtype(self):
+        """Disaggregate does not upcast integer payloads."""
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da_flat, time_dim="time", cluster_dim="variable", n_clusters=4
+        )
+        payload = (result.cluster_representatives * 100).astype(np.int64)
+
+        assert result.clustering.disaggregate(payload).dtype == np.int64
+
+    def test_rejects_mismatched_clusters(self):
+        """Missing cluster IDs raise, as tsam's own disaggregate does."""
+        da = _make_da()
+        da_flat = da.isel(region=0).drop_vars("region")
+        result = tsam_xarray.aggregate(
+            da_flat, time_dim="time", cluster_dim="variable", n_clusters=4
+        )
+        reps = result.cluster_representatives
+
+        with pytest.raises(ValueError, match="missing clusters"):
+            result.clustering.disaggregate(reps.isel(cluster=[0, 1, 2]))
+        with pytest.raises(ValueError, match="timesteps"):
+            result.clustering.disaggregate(reps.isel(timestep=slice(0, 12)))
+
+    def test_differing_time_index_falls_back(self):
+        """Slices whose stored time indices disagree decline the gather."""
+        import dataclasses
+
+        from tsam_xarray import ClusteringResult
+        from tsam_xarray._clustering import _disaggregate_single, _is_gatherable
+
+        da = _make_da(scenarios=["low", "high"])
+        result = tsam_xarray.aggregate(
+            da,
+            time_dim="time",
+            cluster_dim=["variable", "region"],
+            n_clusters=4,
+        )
+        reps = result.cluster_representatives
+
+        stored = dict(result.clustering.clusterings)
+        key = ("high",)
+        stored[key] = dataclasses.replace(
+            stored[key],
+            time_index=stored[key].time_index + pd.Timedelta(days=365),
+        )
+        clustering = ClusteringResult(
+            time_dim=result.clustering.time_dim,
+            cluster_dim=result.clustering.cluster_dim,
+            slice_dims=result.clustering.slice_dims,
+            clusterings=stored,
+            dim_names=result.clustering.dim_names,
+        )
+
+        assert not _is_gatherable(list(stored.values()), reps, clustering.slice_dims)
+
+        dis = clustering.disaggregate(reps)
+        for (scenario,), cr in stored.items():
+            expected = _disaggregate_single(
+                cr, reps.sel(scenario=scenario), clustering.dim_names
+            )
+            actual = dis.sel(scenario=scenario, time=expected.indexes["time"])
+            xr.testing.assert_allclose(
+                actual.drop_vars("scenario"), expected.drop_vars("scenario")
+            )
+
 
 class TestSliceEdgeCases:
     def test_cluster_count_mismatch_raises(self):

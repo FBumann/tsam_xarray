@@ -429,11 +429,17 @@ class ClusteringResult:
 
         slice_coords = {d: data.coords[d].values for d in slice_dims}
         keys = list(itertools.product(*(slice_coords[d] for d in slice_dims)))
+        crs = [_lookup_clustering(self.clusterings, key) for key in keys]
+
+        if _is_gatherable(crs, data, slice_dims):
+            return _disaggregate_gather(
+                crs, data, self.dim_names, slice_dims, slice_coords
+            )
+
         results = []
-        for key in keys:
+        for key, cr in zip(keys, crs, strict=True):
             sel = dict(zip(slice_dims, key, strict=True))
             data_slice = data.sel(sel)
-            cr = _lookup_clustering(self.clusterings, key)
             results.append(_disaggregate_single(cr, data_slice, self.dim_names))
 
         return _concat_along_dims(results, slice_dims, slice_coords)
@@ -704,6 +710,156 @@ def _apply_single(
     )
 
 
+def _is_gatherable(
+    crs: list[tsam.ClusteringResult],
+    data: xr.DataArray,
+    slice_dims: list[str],
+) -> bool:
+    """Whether all slices can be disaggregated by one vectorized gather.
+
+    The gather produces a single rectangular array with one shared time
+    axis, so it needs unsegmented clusterings of identical shape whose time
+    indices agree.
+
+    Args:
+        crs: Per-slice clusterings, in the order the slices appear
+            along ``slice_dims``.
+        data: The payload to disaggregate.
+        slice_dims: Dimension(s) aggregated independently.
+
+    Returns:
+        ``True`` if one gather covers every slice, ``False`` to fall
+        back to the per-slice tsam path.
+    """
+    if any(d not in data.dims for d in slice_dims):
+        return False
+    first = crs[0]
+    if first.segment_durations is not None:
+        return False
+    return all(
+        cr.segment_durations is None
+        and cr.n_timesteps_per_period == first.n_timesteps_per_period
+        and len(cr.cluster_assignments) == len(first.cluster_assignments)
+        and _same_time_index(cr.time_index, first.time_index)
+        for cr in crs[1:]
+    )
+
+
+def _same_time_index(a: pd.Index | None, b: pd.Index | None) -> bool:
+    """Whether two stored time indices would produce the same time axis.
+
+    Args:
+        a: A clustering's stored time index, or ``None``.
+        b: The index to compare against, or ``None``.
+
+    Returns:
+        ``True`` if both are absent or hold equal values.
+    """
+    if a is None or b is None:
+        return a is None and b is None
+    return len(a) == len(b) and bool(np.array_equal(np.asarray(a), np.asarray(b)))
+
+
+def _validate_gather_input(
+    cr: tsam.ClusteringResult,
+    clusters: np.ndarray,
+    n_timesteps: int,
+) -> None:
+    """Mirror tsam's disaggregate input checks for the vectorized path."""
+    expected = set(cr.cluster_assignments)
+    got = set(np.asarray(clusters).tolist())
+    if got != expected:
+        parts = []
+        if expected - got:
+            parts.append(f"missing clusters {sorted(expected - got)}")
+        if got - expected:
+            parts.append(f"unexpected clusters {sorted(got - expected)}")
+        msg = (
+            f"Cluster IDs in data do not match this clustering: "
+            f"{', '.join(parts)}. "
+            f"Expected {sorted(expected)}, got {sorted(got)}."
+        )
+        raise ValueError(msg)
+
+    if n_timesteps != cr.n_timesteps_per_period:
+        msg = (
+            f"data has {n_timesteps} timesteps per cluster, "
+            f"expected {cr.n_timesteps_per_period}"
+        )
+        raise ValueError(msg)
+
+
+def _disaggregate_gather(
+    crs: list[tsam.ClusteringResult],
+    data: xr.DataArray,
+    dim_names: DimNames,
+    slice_dims: list[str],
+    slice_coords: dict[str, Any],
+) -> xr.DataArray:
+    """Disaggregate unsegmented clusterings with a single vectorized gather.
+
+    Expanding an unsegmented clustering is a gather along the cluster axis:
+    every original period takes the values of its assigned representative.
+    tsam's ``disaggregate()`` expresses this as an
+    ``unstack``/``.loc``/``stack`` round-trip through pandas, which dominates
+    the runtime and is repeated once per slice. Doing it in numpy covers all
+    slices at once.
+
+    Output dim order matches the per-slice path: ``(*slice_dims, time,
+    *other_dims)``.
+    """
+    cluster_dim = dim_names.cluster
+    timestep_dim = dim_names.timestep
+    other_dims = [
+        str(d)
+        for d in data.dims
+        if d not in (cluster_dim, timestep_dim) and d not in slice_dims
+    ]
+    ordered = data.transpose(cluster_dim, timestep_dim, *slice_dims, *other_dims)
+
+    clusters = ordered.coords[cluster_dim].values
+    n_clusters = len(clusters)
+    n_timesteps = ordered.sizes[timestep_dim]
+    slice_sizes = tuple(ordered.sizes[d] for d in slice_dims)
+    other_sizes = ordered.shape[2 + len(slice_dims) :]
+
+    positions = pd.Index(clusters)
+    index = np.empty((len(crs), len(crs[0].cluster_assignments)), dtype=np.intp)
+    for i, cr in enumerate(crs):
+        _validate_gather_input(cr, clusters, n_timesteps)
+        index[i] = positions.get_indexer(np.asarray(cr.cluster_assignments))
+
+    n_slices = int(np.prod(slice_sizes, dtype=int))
+    n_periods = index.shape[1]
+
+    # (cluster, timestep, slices, others) -> (cluster, slices, timestep, others)
+    values = ordered.values.reshape(n_clusters, n_timesteps, n_slices, -1)
+    values = values.transpose(0, 2, 1, 3)
+    gathered = values[index.T, np.arange(n_slices)[None, :]]
+    gathered = gathered.transpose(1, 0, 2, 3)
+    gathered = gathered.reshape(*slice_sizes, n_periods * n_timesteps, *other_sizes)
+
+    n_time = n_periods * n_timesteps
+    stored = crs[0].time_index
+    time_index: pd.Index = (
+        stored
+        if stored is not None and len(stored) == n_time
+        else pd.RangeIndex(n_time)
+    )
+
+    result = xr.DataArray(
+        gathered,
+        dims=[*slice_dims, "time", *other_dims],
+        coords={"time": time_index},
+    )
+    for d in (*slice_dims, *other_dims):
+        if d in slice_coords:
+            result = result.assign_coords({d: slice_coords[d]})
+        elif d in data.coords:
+            result = result.assign_coords({d: data.coords[d]})
+    return result
+
+
 def _disaggregate_single(
     cr: tsam.ClusteringResult,
     data: xr.DataArray,
@@ -711,9 +867,15 @@ def _disaggregate_single(
 ) -> xr.DataArray:
     """Disaggregate a single (non-sliced) DataArray using a ClusteringResult.
 
-    Relies on tsam's ``cr.disaggregate()`` to return a DataFrame indexed
-    by the original ``DatetimeIndex`` stored on the clustering.
+    Segmented clusterings go through tsam's ``cr.disaggregate()``, which
+    returns a DataFrame indexed by the original ``DatetimeIndex`` stored on
+    the clustering. Unsegmented ones take the vectorized gather instead.
     """
+    if cr.segment_durations is None:
+        return _disaggregate_gather(
+            [cr], data, dim_names, slice_dims=[], slice_coords={}
+        )
+
     cluster_dim = dim_names.cluster
     timestep_dim = dim_names.timestep
     other_dims = [str(d) for d in data.dims if d not in (cluster_dim, timestep_dim)]
@@ -726,19 +888,12 @@ def _disaggregate_single(
 
     flat = ordered.values.reshape(n_clusters * n_timesteps, -1)
 
-    if cr.segment_durations is not None:
-        idx_tuples = [
-            (int(c), seg, int(dur))
-            for c in clusters
-            for seg, dur in enumerate(cr.segment_durations[int(c)])
-        ]
-        mi = pd.MultiIndex.from_tuples(
-            idx_tuples, names=["cluster", "segment", "duration"]
-        )
-    else:
-        mi = pd.MultiIndex.from_product(
-            [clusters, range(n_timesteps)], names=["cluster", "timestep"]
-        )
+    idx_tuples = [
+        (int(c), seg, int(dur))
+        for c in clusters
+        for seg, dur in enumerate(cr.segment_durations[int(c)])
+    ]
+    mi = pd.MultiIndex.from_tuples(idx_tuples, names=["cluster", "segment", "duration"])
 
     df = pd.DataFrame(flat, index=mi, columns=range(flat.shape[1]))
     expanded = cr.disaggregate(df)
