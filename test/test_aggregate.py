@@ -1721,6 +1721,48 @@ class TestClusteringDisaggregate:
         with pytest.raises(ValueError, match="timesteps"):
             result.clustering.disaggregate(reps.isel(timestep=slice(0, 12)))
 
+    def test_differing_time_index_falls_back(self):
+        """Slices whose stored time indices disagree decline the gather."""
+        import dataclasses
+
+        from tsam_xarray import ClusteringResult
+        from tsam_xarray._clustering import _disaggregate_single, _is_gatherable
+
+        da = _make_da(scenarios=["low", "high"])
+        result = tsam_xarray.aggregate(
+            da,
+            time_dim="time",
+            cluster_dim=["variable", "region"],
+            n_clusters=4,
+        )
+        reps = result.cluster_representatives
+
+        stored = dict(result.clustering.clusterings)
+        key = ("high",)
+        stored[key] = dataclasses.replace(
+            stored[key],
+            time_index=stored[key].time_index + pd.Timedelta(days=365),
+        )
+        clustering = ClusteringResult(
+            time_dim=result.clustering.time_dim,
+            cluster_dim=result.clustering.cluster_dim,
+            slice_dims=result.clustering.slice_dims,
+            clusterings=stored,
+            dim_names=result.clustering.dim_names,
+        )
+
+        assert not _is_gatherable(list(stored.values()), reps, clustering.slice_dims)
+
+        dis = clustering.disaggregate(reps)
+        for (scenario,), cr in stored.items():
+            expected = _disaggregate_single(
+                cr, reps.sel(scenario=scenario), clustering.dim_names
+            )
+            actual = dis.sel(scenario=scenario, time=expected.indexes["time"])
+            xr.testing.assert_allclose(
+                actual.drop_vars("scenario"), expected.drop_vars("scenario")
+            )
+
 
 class TestSliceEdgeCases:
     def test_cluster_count_mismatch_raises(self):

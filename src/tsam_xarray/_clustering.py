@@ -717,9 +717,19 @@ def _is_gatherable(
 ) -> bool:
     """Whether all slices can be disaggregated by one vectorized gather.
 
-    Requires unsegmented clusterings of identical shape whose time indices
-    agree, since the gather produces a single rectangular array with one
-    shared time axis.
+    The gather produces a single rectangular array with one shared time
+    axis, so it needs unsegmented clusterings of identical shape whose time
+    indices agree.
+
+    Args:
+        crs: Per-slice clusterings, in the order the slices appear
+            along ``slice_dims``.
+        data: The payload to disaggregate.
+        slice_dims: Dimension(s) aggregated independently.
+
+    Returns:
+        ``True`` if one gather covers every slice, ``False`` to fall
+        back to the per-slice tsam path.
     """
     if any(d not in data.dims for d in slice_dims):
         return False
@@ -736,6 +746,15 @@ def _is_gatherable(
 
 
 def _same_time_index(a: pd.Index | None, b: pd.Index | None) -> bool:
+    """Whether two stored time indices would produce the same time axis.
+
+    Args:
+        a: A clustering's stored time index, or ``None``.
+        b: The index to compare against, or ``None``.
+
+    Returns:
+        ``True`` if both are absent or hold equal values.
+    """
     if a is None or b is None:
         return a is None and b is None
     return len(a) == len(b) and bool(np.array_equal(np.asarray(a), np.asarray(b)))
