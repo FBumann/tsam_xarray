@@ -232,6 +232,36 @@ def test_user_disaggregate(benchmark, wide_result):
     )
 
 
+@pytest.fixture(scope="module")
+def sliced_result():
+    da = make_data(365, 32, 12)
+    return aggregate(da, time_dim="time", cluster_dim="variable", n_clusters=12)
+
+
+def test_user_disaggregate_sliced(benchmark, sliced_result):
+    benchmark.pedantic(
+        sliced_result.clustering.disaggregate,
+        args=(sliced_result.cluster_representatives,),
+        **CONFIG_OPTS,
+    )
+
+
+def test_user_disaggregate_segmented(benchmark):
+    da = make_data(365, 32, 1)
+    result = aggregate(
+        da,
+        time_dim="time",
+        cluster_dim="variable",
+        n_clusters=12,
+        segments=tsam.SegmentConfig(n_segments=6),
+    )
+    benchmark.pedantic(
+        result.clustering.disaggregate,
+        args=(result.cluster_representatives,),
+        **CONFIG_OPTS,
+    )
+
+
 # --- large tier (production-sized, opt-in via --large) -------------------------
 
 LARGE_OPTS = dict(rounds=2, iterations=1, warmup_rounds=0)
