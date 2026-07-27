@@ -1764,6 +1764,132 @@ class TestClusteringDisaggregate:
             )
 
 
+class TestSegmentedDisaggregate:
+    """Segmented disaggregation: the scatter path and its fallbacks."""
+
+    @staticmethod
+    def _segmented(cluster_dim="variable", **kwargs):
+        from tsam import SegmentConfig
+
+        da = _make_da(**kwargs)
+        if cluster_dim == "variable":
+            da = da.isel(region=0).drop_vars("region")
+        return da, tsam_xarray.aggregate(
+            da,
+            time_dim="time",
+            cluster_dim=cluster_dim,
+            n_clusters=4,
+            segments=SegmentConfig(n_segments=6),
+        )
+
+    def test_matches_reconstructed_after_ffill(self):
+        """Segment values land on boundaries; ffill reproduces reconstructed."""
+        _da, result = self._segmented()
+        dis = result.clustering.disaggregate(result.cluster_representatives)
+
+        xr.testing.assert_allclose(dis.ffill(dim="time"), result.reconstructed)
+
+    def test_only_segment_starts_carry_values(self):
+        """Every timestep that is not a segment start is NaN."""
+        _da, result = self._segmented()
+        dis = result.clustering.disaggregate(result.cluster_representatives)
+
+        n_periods = result.clustering.n_original_periods
+        assert int(dis.isel(variable=0).notnull().sum()) == n_periods * 6
+
+    def test_sliced_dim_order_and_values(self):
+        """Sliced segmented output keeps slice dims leading."""
+        _da, result = self._segmented(
+            cluster_dim=["variable", "region"], scenarios=["low", "high"]
+        )
+        dis = result.clustering.disaggregate(result.cluster_representatives)
+
+        assert dis.dims[:2] == ("scenario", "time")
+        xr.testing.assert_allclose(dis.ffill(dim="time"), result.reconstructed)
+
+    def test_upcasts_to_float_for_nan_fill(self):
+        """Segment gaps are NaN, so integer payloads come back as float."""
+        _da, result = self._segmented()
+        payload = (result.cluster_representatives * 100).astype(np.int64)
+
+        assert result.clustering.disaggregate(payload).dtype == np.float64
+
+    def test_non_contiguous_cluster_labels(self):
+        """Segment durations are looked up by label rank, not by label value."""
+        import tsam
+
+        from tsam_xarray import ClusteringResult
+        from tsam_xarray._dim_names import DimNames
+
+        cr = tsam.ClusteringResult(
+            period_duration=4.0,
+            cluster_assignments=(7, 11, 7),
+            n_timesteps_per_period=4,
+            segment_durations=((2, 2), (1, 3)),
+            segment_assignments=((0, 0, 1, 1), (0, 1, 1, 1)),
+        )
+        clustering = ClusteringResult(
+            time_dim="time",
+            cluster_dim=["variable"],
+            slice_dims=[],
+            clusterings={(): cr},
+            dim_names=DimNames(),
+        )
+        data = xr.DataArray(
+            np.arange(4.0).reshape(2, 2),
+            dims=["cluster", "timestep"],
+            coords={"cluster": [7, 11]},
+        )
+
+        dis = clustering.disaggregate(data)
+        expected = [0, np.nan, 1, np.nan, 2, 3, np.nan, np.nan, 0, np.nan, 1, np.nan]
+        np.testing.assert_array_equal(dis.values, expected)
+
+    def test_irregular_segments_fall_back(self):
+        """Ragged or zero-length segments decline the scatter."""
+        import tsam
+
+        from tsam_xarray._clustering import _is_gatherable
+
+        def make(durations, assignments):
+            return tsam.ClusteringResult(
+                period_duration=4.0,
+                cluster_assignments=assignments,
+                n_timesteps_per_period=4,
+                segment_durations=durations,
+                segment_assignments=((0, 0, 1, 1),) * len(durations),
+            )
+
+        data = xr.DataArray(
+            np.zeros((2, 2)),
+            dims=["cluster", "timestep"],
+            coords={"cluster": [0, 1]},
+        )
+        regular = make(((2, 2), (1, 3)), (0, 1))
+        zero_length = make(((0, 4), (1, 3)), (0, 1))
+        ragged = make(((2, 2), (1, 1, 2)), (0, 1))
+
+        assert _is_gatherable([regular], data, [])
+        assert not _is_gatherable([zero_length], data, [])
+        assert not _is_gatherable([ragged], data, [])
+
+    def test_mixed_segmentation_across_slices_falls_back(self):
+        """A segmented and an unsegmented slice cannot share one gather."""
+        from tsam_xarray._clustering import _is_gatherable
+
+        _da, segmented = self._segmented()
+        da = _make_da().isel(region=0).drop_vars("region")
+        plain = tsam_xarray.aggregate(
+            da, time_dim="time", cluster_dim="variable", n_clusters=4
+        )
+        crs = [
+            segmented.clustering.clusterings[()],
+            plain.clustering.clusterings[()],
+        ]
+
+        assert not _is_gatherable(crs, segmented.cluster_representatives, [])
+
+
 class TestSliceEdgeCases:
     def test_cluster_count_mismatch_raises(self):
         """Mismatched cluster counts across slices raise ValueError."""
