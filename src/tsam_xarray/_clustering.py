@@ -876,6 +876,13 @@ def _disaggregate_gather(
 
     Output dim order matches the per-slice path: ``(*slice_dims, time,
     *other_dims)``.
+
+    The payload is transposed straight into the layout the gather reads and
+    the output is written in, then made contiguous. Gathering from a strided
+    view of an awkwardly ordered payload costs several times more than the
+    copy does, and the copy is free when the payload already has that layout.
+    Segmented input skips it, since the scatter allocates a fresh buffer in
+    that layout anyway.
     """
     cluster_dim = dim_names.cluster
     step_dim = dim_names.timestep
@@ -884,13 +891,13 @@ def _disaggregate_gather(
         for d in data.dims
         if d not in (cluster_dim, step_dim) and d not in slice_dims
     ]
-    ordered = data.transpose(cluster_dim, step_dim, *slice_dims, *other_dims)
+    ordered = data.transpose(*slice_dims, cluster_dim, step_dim, *other_dims)
 
     clusters = ordered.coords[cluster_dim].values
     n_clusters = len(clusters)
     n_steps = ordered.sizes[step_dim]
     slice_sizes = tuple(ordered.sizes[d] for d in slice_dims)
-    other_sizes = ordered.shape[2 + len(slice_dims) :]
+    other_sizes = ordered.shape[len(slice_dims) + 2 :]
     n_slices = int(np.prod(slice_sizes, dtype=int))
     n_periods = len(crs[0].cluster_assignments)
     n_timesteps = crs[0].n_timesteps_per_period
@@ -905,11 +912,11 @@ def _disaggregate_gather(
         if cr.segment_durations is not None:
             starts[i] = _segment_starts(cr, cluster_ranks)
 
-    # (cluster, step, slices, others) -> (slices, cluster, step, others)
-    values = ordered.values.reshape(n_clusters, n_steps, n_slices, -1)
-    values = values.transpose(2, 0, 1, 3)
+    values = ordered.values.reshape(n_slices, n_clusters, n_steps, -1)
     if crs[0].segment_durations is not None:
         values = _expand_segments(values, starts, n_timesteps)
+    else:
+        values = np.ascontiguousarray(values)
 
     gathered = values[np.arange(n_slices)[:, None], index]
     gathered = gathered.reshape(*slice_sizes, n_periods * n_timesteps, *other_sizes)
