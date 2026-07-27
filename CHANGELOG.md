@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.6.6](https://github.com/FBumann/tsam_xarray/compare/v0.6.5...v0.6.6) (2026-07-27)
+
+
+### Performance Improvements
+
+* compute accuracy and reconstructed on first access ([#113](https://github.com/FBumann/tsam_xarray/issues/113)) ([69443aa](https://github.com/FBumann/tsam_xarray/commit/69443aa78a7e4cef5551a1010e65bc3e99210af7))
+* disaggregate segmented clusterings with a scatter ([#117](https://github.com/FBumann/tsam_xarray/issues/117)) ([02c569f](https://github.com/FBumann/tsam_xarray/commit/02c569f44a2c937841a10db343be1c5a2daf70e3))
+* gather from the payload's final layout instead of a strided view ([#119](https://github.com/FBumann/tsam_xarray/issues/119)) ([0a455bf](https://github.com/FBumann/tsam_xarray/commit/0a455bf81792b2654cd644bcce24fbc6a92f32cb))
+
 ## [0.6.5](https://github.com/FBumann/tsam_xarray/compare/v0.6.4...v0.6.5) (2026-07-27)
 
 
