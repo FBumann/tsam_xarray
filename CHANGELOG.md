@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.6.5](https://github.com/FBumann/tsam_xarray/compare/v0.6.4...v0.6.5) (2026-07-27)
+
+
+### Features
+
+* support tsam v4 (cluster_counts rename, ClusterConfig.weights removal) ([#105](https://github.com/FBumann/tsam_xarray/issues/105)) ([6cd9f5d](https://github.com/FBumann/tsam_xarray/commit/6cd9f5d41057eb7ec9e3a29f811d7ee52a80a9c0))
+
+
+### Bug Fixes
+
+* reset uv.lock before the base benchmark run ([#111](https://github.com/FBumann/tsam_xarray/issues/111)) ([3d7d8b7](https://github.com/FBumann/tsam_xarray/commit/3d7d8b7ed0f5b435e9d1eda17080bbaa4a79d158))
+
+
+### Performance Improvements
+
+* disaggregate unsegmented clusterings with a numpy gather ([#116](https://github.com/FBumann/tsam_xarray/issues/116)) ([0fc2de6](https://github.com/FBumann/tsam_xarray/commit/0fc2de6676b2322f0d0a0512c88a13ecc47ae160))
+
 ## [0.6.4](https://github.com/FBumann/tsam_xarray/compare/v0.6.3...v0.6.4) (2026-07-22)
 
 
