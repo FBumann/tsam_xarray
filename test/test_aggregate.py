@@ -10,6 +10,7 @@ import pytest
 import xarray as xr
 
 import tsam_xarray
+from tsam_xarray._core import _clustering_supports_replace_transfer
 
 
 def _make_da(
@@ -410,9 +411,17 @@ class TestClusterOn:
         assert result.n_clusters == 4
         assert "price" in result.cluster_representatives.coords["variable"].values
 
+    @pytest.mark.skipif(
+        _clustering_supports_replace_transfer(),
+        reason="tsam transfers replace (#410) — cluster_on+replace is allowed",
+    )
     def test_replace_extremes_rejected(self, da_3var: xr.DataArray):
         """extremes='replace' can't survive the cluster_on transfer — error,
-        and steer users to weights instead of full exclusion."""
+        and steer users to weights instead of full exclusion.
+
+        Only on tsam that cannot transfer the hybrid 'replace' representative;
+        newer tsam reproduces it, so the rejection is lifted (covered by
+        ``test_extremes_composability.TestReplaceTransfers``)."""
         import tsam
 
         with pytest.raises(ValueError, match=r"replace.*not supported.*cluster_on"):

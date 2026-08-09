@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import itertools
 import warnings
 from collections.abc import Hashable, Sequence
@@ -31,6 +32,54 @@ def _cluster_counts(tsam_result: Any) -> dict[int, float]:
     if counts is None:
         counts = tsam_result.cluster_weights
     return cast("dict[int, float]", counts)
+
+
+def _extreme_config_supports_preserve() -> bool:
+    """True when the installed tsam's ``ExtremeConfig`` has ``preserve_n_clusters``.
+
+    Added in the tsam release that fixes FZJ-IEK3-VSA/tsam#410. On older tsam the
+    field is absent and the wrapper falls back to today's behaviour, where extreme
+    counts may vary across slices.
+    """
+    return any(
+        f.name == "preserve_n_clusters" for f in dataclasses.fields(tsam.ExtremeConfig)
+    )
+
+
+def _clustering_supports_replace_transfer() -> bool:
+    """True when the installed tsam stores replace injections for transfer.
+
+    Added alongside ``preserve_n_clusters`` (FZJ-IEK3-VSA/tsam#410). When present,
+    ``ClusteringResult.apply()`` reproduces the hybrid 'replace' representative, so
+    the ``cluster_on`` transfer path is safe with ``method="replace"``.
+    """
+    return any(
+        f.name == "extreme_replacements"
+        for f in dataclasses.fields(tsam.ClusteringResult)
+    )
+
+
+def _force_preserve_n_clusters(tsam_kwargs: dict[str, Any]) -> None:
+    """Pin the extreme-period count so every slice yields exactly ``n_clusters``.
+
+    tsam adds a data-dependent number of extreme clusters — criteria that resolve
+    to the same period, or an extreme already coinciding with a cluster center, get
+    deduplicated — so independently-aggregated slices can end up with different
+    cluster counts and fail to stack. tsam's ``preserve_n_clusters=True`` clusters
+    into ``n_clusters - D`` and adds the ``D`` extremes back, making the total
+    exactly ``n_clusters`` regardless of the data. The wrapper always turns it on
+    for the additive methods so its rectangular output holds; ``method="replace"``
+    is already count-stable (and the flag would only warn there), so it is left
+    untouched. No-op on tsam versions without the flag.
+    """
+    extremes = tsam_kwargs.get("extremes")
+    if extremes is None or not _extreme_config_supports_preserve():
+        return
+    if getattr(extremes, "method", "append") == "replace":
+        return
+    if getattr(extremes, "preserve_n_clusters", False):
+        return
+    tsam_kwargs["extremes"] = dataclasses.replace(extremes, preserve_n_clusters=True)
 
 
 def aggregate(
@@ -95,15 +144,14 @@ def aggregate(
               to be clustered on. At least one column must
               remain selected.
 
-              Not compatible with ``ExtremeConfig(method=
-              "replace")`` — the carried columns are filled by
-              transferring the clustering, which cannot
-              reproduce the hybrid 'replace' representative. Use
-              a low ``weights`` value to de-emphasise a column
-              instead of excluding it. An ``ExtremeConfig`` also
-              may not reference an excluded coordinate, since
-              extreme periods are identified only on the
-              clustered-on columns.
+              ``ExtremeConfig(method="replace")`` needs a tsam
+              that can transfer the hybrid 'replace'
+              representative (FZJ-IEK3-VSA/tsam#410); on older
+              tsam it is rejected — use a low ``weights`` value
+              to de-emphasise a column instead of excluding it.
+              An ``ExtremeConfig`` may not reference an excluded
+              coordinate, since extreme periods are identified
+              only on the clustered-on columns.
 
         dim_names: Names for the structural output dimensions
             (``cluster``, ``timestep``, ``period``, ``segment``).
@@ -113,6 +161,16 @@ def aggregate(
 
         **tsam_kwargs: Additional keyword arguments passed to
             ``tsam.aggregate()``.
+
+            When ``extremes`` uses an additive method
+            (``"append"`` / ``"new_cluster"``), the wrapper
+            forces ``preserve_n_clusters=True`` so every slice
+            yields exactly ``n_clusters`` representatives and the
+            output stays rectangular. Extremes count against the
+            cluster budget rather than adding to it. Requires a
+            tsam with the flag (FZJ-IEK3-VSA/tsam#410); on older
+            tsam the count is data-dependent and mismatched
+            slices raise.
     """
     resolved_dim_names = dim_names if dim_names is not None else DimNames()
     _validate_time_dim(da, time_dim)
@@ -125,6 +183,7 @@ def aggregate(
     per_dim_weights = _normalize_weights(weights, da, col_dims)
     active_coords = _normalize_cluster_on(cluster_on, da, col_dims)
     _validate_extremes_with_cluster_on(tsam_kwargs, active_coords, da)
+    _force_preserve_n_clusters(tsam_kwargs)
 
     if not slice_dims:
         return _aggregate_single(
@@ -220,15 +279,17 @@ def _validate_extremes_with_cluster_on(
     """Reject extremes settings incompatible with the cluster_on transfer.
 
     cluster_on clusters on the active subset and transfers the result to the
-    carried columns via ``ClusteringResult.apply()``. Two extremes settings
-    don't survive that transfer:
+    carried columns via ``ClusteringResult.apply()``. Two extremes settings can
+    fail to survive that transfer:
 
     - ``method="replace"`` builds a hybrid representative (some columns from the
-      medoid, some from the extreme period) that apply() cannot reproduce — tsam
-      silently falls back to the medoid. Rather than degrade quietly, error and
-      point to ``weights``, which de-emphasises a column without excluding it
-      (tsam clamps a low weight to a minimal one, so the column stays in the
-      single aggregation pass and 'replace' remains reproducible).
+      medoid, some from the extreme period). On tsam versions that store the
+      injection (FZJ-IEK3-VSA/tsam#410), apply() replays it and the transfer is
+      exact, so 'replace' is allowed. On older tsam, apply() silently falls back
+      to the medoid — rather than degrade quietly, error and point to ``weights``,
+      which de-emphasises a column without excluding it (tsam clamps a low weight
+      to a minimal one, so the column stays in the single aggregation pass and
+      'replace' remains reproducible).
     - An ExtremeConfig that references a coordinate cluster_on excluded: those
       columns never enter the clustering, so tsam can't identify extremes on
       them (it would raise a misleading "not found in data"). Surface the real
@@ -240,15 +301,20 @@ def _validate_extremes_with_cluster_on(
     if extremes is None:
         return
 
-    if getattr(extremes, "method", None) == "replace":
+    if (
+        getattr(extremes, "method", None) == "replace"
+        and not _clustering_supports_replace_transfer()
+    ):
         msg = (
             "extremes method 'replace' is not supported together with "
-            "cluster_on. cluster_on fully excludes the carried columns and "
-            "transfers the clustering to them, which cannot reproduce the "
-            "hybrid 'replace' representative. To reduce a column's influence "
-            "without excluding it, give it a low 'weights' value instead of "
-            "using cluster_on (weights never removes a column entirely, so "
-            "'replace' stays reproducible)."
+            "cluster_on on this tsam version. cluster_on fully excludes the "
+            "carried columns and transfers the clustering to them, which this "
+            "tsam cannot reproduce for the hybrid 'replace' representative. "
+            "Upgrade tsam to a version with transferable 'replace' "
+            "(FZJ-IEK3-VSA/tsam#410), or reduce a column's influence without "
+            "excluding it by giving it a low 'weights' value instead of using "
+            "cluster_on (weights never removes a column entirely, so 'replace' "
+            "stays reproducible)."
         )
         raise ValueError(msg)
 
@@ -371,12 +437,13 @@ def _validate_consistent_cluster_counts(
     if len(unique) > 1:
         msg = (
             "Slices produced different cluster counts: "
-            f"{counts}. This can happen with "
-            "ExtremeConfig(method='append'). Use "
-            "method='replace', aggregate slices separately, "
-            "or open an issue at "
-            "github.com/FBumann/tsam_xarray/issues "
-            "to discuss expected behaviour."
+            f"{counts}. This happens with additive extremes "
+            "(ExtremeConfig(method='append' / 'new_cluster')) on "
+            "a tsam without preserve_n_clusters. Upgrade tsam to "
+            "a version with count-stable extremes "
+            "(FZJ-IEK3-VSA/tsam#410), which the wrapper enables "
+            "automatically, or use method='replace' or aggregate "
+            "slices separately."
         )
         raise ValueError(msg)
 
