@@ -641,6 +641,7 @@ def _apply_single(
 
     from tsam_xarray._core import (
         _cluster_counts,
+        _concurrency_metrics,
         _metric_to_da,
         _reconstructed_to_da,
         _representatives_to_da,
@@ -707,6 +708,7 @@ def _apply_single(
         segment_durations=seg_durations,
         _accuracy_factory=_make_accuracy,
         _reconstructed_factory=_make_reconstructed,
+        _concurrency_factory=lambda: _concurrency_metrics(tsam_result),
         original=da,
         clustering=clustering_info,
         is_transferred=True,

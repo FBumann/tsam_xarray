@@ -36,6 +36,7 @@ graph LR
     D --- F5[".segment_durations<br/><i>cluster, timestep, *slice_dims | None</i>"]
 
     Meta --- A[".accuracy<br/><b>→ AccuracyMetrics</b>"]
+    Meta --- CC[".concurrency<br/><b>→ ConcurrencyMetrics | None</b>"]
     Meta --- C[".clustering<br/><b>→ ClusteringResult</b>"]
 ```
 
@@ -120,6 +121,22 @@ Per-column metrics as DataArrays, plus weighted scalars.
 | `weighted_rmse` | float | Scalar RMSE weighted by column weights |
 | `weighted_mae` | float | Scalar MAE weighted by column weights |
 | `weighted_rmse_duration` | float | Scalar duration RMSE weighted by column weights |
+
+## ConcurrencyMetrics
+
+Scalars measuring how well the joint structure *across* the clustered columns
+— which values co-occur in time — survives aggregation, where
+`AccuracyMetrics` measures each column on its own. Lower is better; both are
+`NaN` when a single column is clustered.
+
+`result.concurrency` is `None` on tsam < 4, which does not compute these.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `correlation_error` | float | Frobenius norm of the difference between the Pearson correlation matrices of the original and the reconstructed columns |
+| `rank_correlation_error` | float | The same for Spearman rank correlation, a copula proxy invariant to monotone changes in the marginals |
+
+With slice dims, both are DataArrays over `(*slice_dims)` rather than scalars.
 
 ## Glossary
 

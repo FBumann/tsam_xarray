@@ -17,6 +17,13 @@ if TYPE_CHECKING:
     from tsam_xarray._dim_names import DimNames
 
 
+def _fmt_metric(da: xr.DataArray) -> str:
+    mean = float(da.mean())
+    if da.size <= 1:
+        return f"{mean:.4f}"
+    return f"{mean:.4f} [{float(da.min()):.4f}-{float(da.max()):.4f}]"
+
+
 @dataclass(frozen=True, repr=False)
 class AccuracyMetrics:
     """Accuracy metrics from time series aggregation.
@@ -45,18 +52,44 @@ class AccuracyMetrics:
     weighted_rmse_duration: xr.DataArray
 
     def __repr__(self) -> str:
-        def _fmt(da: xr.DataArray) -> str:
-            mean = float(da.mean())
-            if da.size <= 1:
-                return f"{mean:.4f}"
-            return f"{mean:.4f} [{float(da.min()):.4f}-{float(da.max()):.4f}]"
-
         return (
             f"AccuracyMetrics("
-            f"weighted_rmse={_fmt(self.weighted_rmse)}, "
-            f"weighted_mae={_fmt(self.weighted_mae)}, "
+            f"weighted_rmse={_fmt_metric(self.weighted_rmse)}, "
+            f"weighted_mae={_fmt_metric(self.weighted_mae)}, "
             f"weighted_rmse_duration="
-            f"{_fmt(self.weighted_rmse_duration)})"
+            f"{_fmt_metric(self.weighted_rmse_duration)})"
+        )
+
+
+@dataclass(frozen=True, repr=False)
+class ConcurrencyMetrics:
+    """Cross-column concurrency metrics from time series aggregation.
+
+    Measures how well the joint structure across the clustered columns --
+    which values co-occur in time -- survives aggregation, complementing the
+    per-column error in `AccuracyMetrics`. Lower is better; both values are
+    ``NaN`` for a single clustered column.
+
+    Requires tsam >= 4. See `AggregationResult.concurrency`.
+
+    Attributes:
+        correlation_error: Frobenius norm of the difference between the
+            Pearson correlation matrices of the original and the
+            reconstructed columns. Dims: ``(*slice_dims)`` or scalar.
+        rank_correlation_error: The same for the Spearman rank-correlation
+            matrices, a copula proxy invariant to monotone changes in the
+            marginals. Dims: ``(*slice_dims)`` or scalar.
+    """
+
+    correlation_error: xr.DataArray
+    rank_correlation_error: xr.DataArray
+
+    def __repr__(self) -> str:
+        return (
+            f"ConcurrencyMetrics("
+            f"correlation_error={_fmt_metric(self.correlation_error)}, "
+            f"rank_correlation_error="
+            f"{_fmt_metric(self.rank_correlation_error)})"
         )
 
 
@@ -81,6 +114,9 @@ class AggregationResult:
             Computed on first access; on a tsam that defers
             metric computation (v4), never reading it skips
             the computation entirely.
+        concurrency: Cross-column concurrency metrics, or
+            ``None`` on tsam < 4, which does not compute them.
+            Computed on first access, like ``accuracy``.
         reconstructed: Reconstructed time series
             (same shape and dim order as ``original``).
             Computed on first access, like ``accuracy``.
@@ -104,6 +140,9 @@ class AggregationResult:
     _reconstructed_factory: Callable[[], xr.DataArray] = field(
         kw_only=True, repr=False, compare=False
     )
+    _concurrency_factory: Callable[[], ConcurrencyMetrics | None] = field(
+        kw_only=True, repr=False, compare=False
+    )
 
     @cached_property
     def accuracy(self) -> AccuracyMetrics:
@@ -114,6 +153,15 @@ class AggregationResult:
     def reconstructed(self) -> xr.DataArray:
         """Reconstructed series on the original time axis, computed on first access."""
         return self._reconstructed_factory()
+
+    @cached_property
+    def concurrency(self) -> ConcurrencyMetrics | None:
+        """Cross-column concurrency metrics, computed on first access.
+
+        ``None`` on tsam < 4, which does not compute them. See
+        `ConcurrencyMetrics`.
+        """
+        return self._concurrency_factory()
 
     def __repr__(self) -> str:
         c = self.clustering
