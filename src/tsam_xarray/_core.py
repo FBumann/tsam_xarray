@@ -13,10 +13,24 @@ import tsam
 import xarray as xr
 
 from tsam_xarray._dim_names import DimNames
-from tsam_xarray._result import AccuracyMetrics, AggregationResult
+from tsam_xarray._result import AccuracyMetrics, AggregationResult, ConcurrencyMetrics
 
 Weights = dict[str, float] | dict[str, dict[str, float]] | None
 ClusterOn = str | Sequence[str] | dict[str, Sequence[str]] | None
+
+
+def _concurrency_metrics(tsam_result: Any) -> ConcurrencyMetrics | None:
+    """Cross-column concurrency metrics, or None on a tsam that lacks them.
+
+    tsam v4 added ``AggregationResult.concurrency``; v3 has no equivalent.
+    """
+    concurrency = getattr(tsam_result, "concurrency", None)
+    if concurrency is None:
+        return None
+    return ConcurrencyMetrics(
+        correlation_error=xr.DataArray(concurrency.correlation_error),
+        rank_correlation_error=xr.DataArray(concurrency.rank_correlation_error),
+    )
 
 
 def _cluster_counts(tsam_result: Any) -> dict[int, float]:
@@ -778,6 +792,7 @@ def _result_from_tsam(
         segment_durations=seg_durations,
         _accuracy_factory=_make_accuracy,
         _reconstructed_factory=_make_reconstructed,
+        _concurrency_factory=lambda: _concurrency_metrics(tsam_result),
         original=da,
         clustering=clustering_info,
     )
@@ -817,6 +832,25 @@ def _concat_along_dims(
         return xr.concat(children, dim=idx)
 
     return _recursive_concat(nested, slice_dims)
+
+
+def _concat_concurrency(
+    results: list[AggregationResult],
+    slice_dims: list[str],
+    slice_coords: dict[str, Any],
+) -> ConcurrencyMetrics | None:
+    """Concatenate per-slice concurrency metrics, or None if any slice lacks them."""
+    metrics = [m for m in (r.concurrency for r in results) if m is not None]
+    if len(metrics) != len(results):
+        return None
+    return ConcurrencyMetrics(
+        correlation_error=_concat_along_dims(
+            [m.correlation_error for m in metrics], slice_dims, slice_coords
+        ),
+        rank_correlation_error=_concat_along_dims(
+            [m.rank_correlation_error for m in metrics], slice_dims, slice_coords
+        ),
+    )
 
 
 def _concat_results(
@@ -884,6 +918,9 @@ def _concat_results(
             ),
         ),
         _reconstructed_factory=lambda: _field("reconstructed"),
+        _concurrency_factory=lambda: _concat_concurrency(
+            results, slice_dims, slice_coords
+        ),
         original=_field("original"),
         clustering=merged_clustering,
         is_transferred=first.is_transferred,
