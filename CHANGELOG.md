@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.7](https://github.com/FBumann/tsam_xarray/compare/v0.6.6...v0.6.7) (2026-09-08)
+
+
+### Features
+
+* surface tsam's cross-column concurrency metrics ([#122](https://github.com/FBumann/tsam_xarray/issues/122)) ([7d21c63](https://github.com/FBumann/tsam_xarray/commit/7d21c63cb8ebe2176cc3ca10c9f71721d4db5228))
+
 ## [0.6.6](https://github.com/FBumann/tsam_xarray/compare/v0.6.5...v0.6.6) (2026-07-27)
 
 
