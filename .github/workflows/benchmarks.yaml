@@ -32,7 +32,7 @@ jobs:
       contents: read
       pull-requests: write # no-op on fork PRs (read-only token); comment step is guarded
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # hatch-vcs + checkout of the base revision
           persist-credentials: false # benchmarks execute PR code; keep the token out of .git/config
